@@ -1,6 +1,5 @@
 const DAILY_GOAL = 200;
-const STORAGE_KEY = "cycleCountProduction.dailyRecords.v1";
-const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const STORAGE_KEY = "cycleCountProduction.snapshots.v2";
 const AISLES = "ABCDEFGHIJKL".split("");
 
 const PEOPLE = [
@@ -16,12 +15,10 @@ const PEOPLE = [
 
 const productionPeople = PEOPLE.filter((person) => person.production);
 const initialsMap = Object.fromEntries(PEOPLE.map((person) => [person.initials, person]));
-const aisleOwner = Object.fromEntries(productionPeople.flatMap((person) => person.aisles.map((aisle) => [aisle, person.name])));
 
 const state = {
   detailWorkbook: null,
   detailRows: [],
-  detailHeaderIndex: 0,
   createdByAisle: Object.fromEntries(AISLES.map((aisle) => [aisle, 0])),
   initialsByPerson: Object.fromEntries(PEOPLE.map((person) => [person.name, 0])),
   totalsByPerson: Object.fromEntries(PEOPLE.map((person) => [person.name, 0])),
@@ -30,32 +27,12 @@ const state = {
 };
 
 const $ = (id) => document.getElementById(id);
-const productionDate = $("productionDate");
 const sourceFile = $("sourceFile");
 const sourceSheet = $("sourceSheet");
 const batchColumn = $("batchColumn");
 
 function normalize(value) {
   return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9%#]+/g, " ").trim();
-}
-
-function todayLocal() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-}
-
-function selectedDay() {
-  if (!productionDate.value) return null;
-  const date = new Date(`${productionDate.value}T12:00:00`);
-  return { date, weekday: WEEKDAYS[date.getDay()], isWorkday: date.getDay() >= 1 && date.getDay() <= 5 };
-}
-
-function updateDateDisplay() {
-  const day = selectedDay();
-  if (!day) return;
-  $("selectedWeekday").textContent = day.weekday;
-  $("weekdayStatus").textContent = day.isWorkday ? `${day.weekday} record` : "Weekend selected";
-  $("weekdayStatus").classList.toggle("success", day.isWorkday);
 }
 
 function readWorkbook(file) {
@@ -110,19 +87,19 @@ function loadDetailSheet() {
   if (detected < 0) detected = detectColumn(headers, ["bin #", "bin"]);
   if (detected < 0) detected = 0;
   setOptions(batchColumn, options, detected);
-  state.detailHeaderIndex = headerIndex;
   state.detailRows = matrix.slice(headerIndex + 1);
   calculateCreatedCounts();
 }
 
 function calculateCreatedCounts() {
   state.createdByAisle = Object.fromEntries(AISLES.map((aisle) => [aisle, 0]));
-  if (!state.detailRows.length || batchColumn.value === "") return render();
-  const column = Number(batchColumn.value);
-  state.detailRows.forEach((row) => {
-    const aisle = parseCreatedBatch(row[column]);
-    if (aisle) state.createdByAisle[aisle] += 1;
-  });
+  if (state.detailRows.length && batchColumn.value !== "") {
+    const column = Number(batchColumn.value);
+    state.detailRows.forEach((row) => {
+      const aisle = parseCreatedBatch(row[column]);
+      if (aisle) state.createdByAisle[aisle] += 1;
+    });
+  }
   calculateTotals();
 }
 
@@ -138,17 +115,12 @@ function readPastedList() {
   state.pastedRows = parsePastedRows($("alreadyPaste").value);
   state.initialsByPerson = Object.fromEntries(PEOPLE.map((person) => [person.name, 0]));
   state.reviewRows = [];
-
   state.pastedRows.forEach((row) => {
     if (!row.item && !row.initials) return;
     const person = initialsMap[row.initials];
-    if (person) {
-      state.initialsByPerson[person.name] += 1;
-    } else {
-      state.reviewRows.push({ row: row.row, item: row.item || "(blank)", initials: row.initials || "Blank" });
-    }
+    if (person) state.initialsByPerson[person.name] += 1;
+    else state.reviewRows.push({ row: row.row, item: row.item || "(blank)", initials: row.initials || "Blank" });
   });
-
   $("alreadyStatus").textContent = `${state.pastedRows.length} pasted rows read`;
   $("alreadyStatus").classList.add("success");
   calculateTotals();
@@ -164,19 +136,15 @@ function calculateTotals() {
 }
 
 function render() {
+  if (!state.detailWorkbook && !state.pastedRows.length) return;
   const createdTotal = Object.values(state.createdByAisle).reduce((sum, count) => sum + count, 0);
   const pastedTotal = Object.values(state.initialsByPerson).reduce((sum, count) => sum + count, 0);
   const teamTotal = productionPeople.reduce((sum, person) => sum + state.totalsByPerson[person.name], 0);
   const reviewTotal = state.reviewRows.length;
 
-  if (!state.detailWorkbook && !state.pastedRows.length) return;
   $("resultsSection").classList.remove("hidden");
   $("recordSummary").textContent = `${teamTotal} team counts • ${reviewTotal} review`;
-  $("kpiStrip").innerHTML = `
-    <div class="kpi"><span>Created counts</span><strong>${createdTotal}</strong></div>
-    <div class="kpi"><span>Initials-list counts</span><strong>${pastedTotal}</strong></div>
-    <div class="kpi"><span>Production-team total</span><strong>${teamTotal}</strong></div>
-    <div class="kpi"><span>Needs review</span><strong>${reviewTotal}</strong></div>`;
+  $("kpiStrip").innerHTML = `<div class="kpi"><span>Created counts</span><strong>${createdTotal}</strong></div><div class="kpi"><span>Initials-list counts</span><strong>${pastedTotal}</strong></div><div class="kpi"><span>Production-team total</span><strong>${teamTotal}</strong></div><div class="kpi"><span>Needs review</span><strong>${reviewTotal}</strong></div>`;
 
   $("productionCards").innerHTML = productionPeople.map((person) => {
     const created = person.aisles.reduce((sum, aisle) => sum + state.createdByAisle[aisle], 0);
@@ -193,9 +161,7 @@ function render() {
     details.classList.remove("hidden");
     $("reviewCount").textContent = reviewTotal;
     $("reviewList").innerHTML = state.reviewRows.map((row) => `<div><span>Row ${row.row}</span><strong>${escapeHtml(row.item)}</strong><small>${escapeHtml(row.initials)}</small></div>`).join("");
-  } else {
-    details.classList.add("hidden");
-  }
+  } else details.classList.add("hidden");
 }
 
 function escapeHtml(value) {
@@ -203,7 +169,7 @@ function escapeHtml(value) {
 }
 
 function loadHistory() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}"); } catch { return {}; }
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); } catch { return []; }
 }
 
 function saveHistory(history) {
@@ -211,11 +177,8 @@ function saveHistory(history) {
 }
 
 function currentRecord() {
-  const day = selectedDay();
-  if (!day) throw new Error("Choose a production date first.");
   return {
-    date: productionDate.value,
-    weekday: day.weekday,
+    id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
     savedAt: new Date().toISOString(),
     createdByAisle: { ...state.createdByAisle },
     initialsByPerson: { ...state.initialsByPerson },
@@ -224,25 +187,21 @@ function currentRecord() {
   };
 }
 
-function saveCurrentDate() {
-  try {
-    const record = currentRecord();
-    const history = loadHistory();
-    history[record.date] = record;
-    saveHistory(history);
-    showSaveMessage(`${record.weekday}, ${record.date} was saved on this device.`);
-    renderHistory();
-  } catch (error) {
-    showSaveMessage(error.message, true);
-  }
+function saveSnapshot() {
+  const history = loadHistory();
+  const record = currentRecord();
+  history.unshift(record);
+  saveHistory(history.slice(0, 100));
+  showSaveMessage(`Results saved at ${new Date(record.savedAt).toLocaleString()}.`);
+  renderHistory();
 }
 
 function renderHistory() {
-  const records = Object.values(loadHistory()).sort((a, b) => b.date.localeCompare(a.date));
+  const records = loadHistory();
   $("historyBody").innerHTML = records.length ? records.map((record) => {
     const team = productionPeople.reduce((sum, person) => sum + (record.totalsByPerson?.[person.name] || 0), 0);
-    return `<tr><td>${record.date}</td><td>${record.weekday}</td><td>${team}</td><td>${record.totalsByPerson?.Greg || 0}</td><td>${record.totalsByPerson?.Denise || 0}</td><td>${record.reviewCount || 0}</td><td><button data-delete-date="${record.date}" type="button">Delete</button></td></tr>`;
-  }).join("") : `<tr><td colspan="7" class="empty-row">No saved dates yet.</td></tr>`;
+    return `<tr><td>${new Date(record.savedAt).toLocaleString()}</td><td>${team}</td><td>${record.totalsByPerson?.Greg || 0}</td><td>${record.totalsByPerson?.Denise || 0}</td><td>${record.reviewCount || 0}</td><td><button data-delete-id="${record.id}" type="button">Delete</button></td></tr>`;
+  }).join("") : `<tr><td colspan="6" class="empty-row">No saved results yet.</td></tr>`;
 }
 
 function showSaveMessage(text, isError = false) {
@@ -253,21 +212,18 @@ function showSaveMessage(text, isError = false) {
 }
 
 function downloadSummary() {
-  let record;
-  try { record = currentRecord(); } catch (error) { return showSaveMessage(error.message, true); }
+  const record = currentRecord();
   const employeeRows = PEOPLE.map((person) => ({ Employee: person.name, Initials: person.initials, "Created Counts": person.production ? person.aisles.reduce((sum, aisle) => sum + record.createdByAisle[aisle], 0) : 0, "Already Counted List": record.initialsByPerson[person.name] || 0, "Total Counts": record.totalsByPerson[person.name] || 0, "Production %": person.production ? (record.totalsByPerson[person.name] || 0) / DAILY_GOAL : "" }));
   const workbook = XLSX.utils.book_new();
   const summary = XLSX.utils.json_to_sheet(employeeRows);
   employeeRows.forEach((row, index) => { if (typeof row["Production %"] === "number") summary[`F${index + 2}`].z = "0.0%"; });
-  XLSX.utils.book_append_sheet(workbook, summary, "Daily Production");
+  XLSX.utils.book_append_sheet(workbook, summary, "Production Summary");
   if (state.reviewRows.length) XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(state.reviewRows), "Needs Review");
-  XLSX.writeFile(workbook, `Cycle_Count_Production_${record.date}.xlsx`);
+  const stamp = new Date().toISOString().replace(/[:T]/g, "-").slice(0, 16);
+  XLSX.writeFile(workbook, `Cycle_Count_Production_${stamp}.xlsx`);
 }
 
-productionDate.value = todayLocal();
-updateDateDisplay();
 renderHistory();
-productionDate.addEventListener("change", updateDateDisplay);
 sourceFile.addEventListener("change", async () => {
   const file = sourceFile.files[0];
   if (!file) return;
@@ -278,7 +234,7 @@ sourceFile.addEventListener("change", async () => {
     $("sourceControls").classList.remove("hidden");
     $("sourceStatus").textContent = `${file.name} loaded`;
     $("sourceStatus").classList.add("success");
-  } catch (error) {
+  } catch {
     $("sourceStatus").textContent = "Could not read file";
   }
 });
@@ -286,6 +242,6 @@ sourceSheet.addEventListener("change", loadDetailSheet);
 batchColumn.addEventListener("change", calculateCreatedCounts);
 $("readPasteBtn").addEventListener("click", readPastedList);
 $("clearPasteBtn").addEventListener("click", () => { $("alreadyPaste").value = ""; state.pastedRows = []; state.initialsByPerson = Object.fromEntries(PEOPLE.map((person) => [person.name, 0])); state.reviewRows = []; $("alreadyStatus").textContent = "Waiting for data"; calculateTotals(); });
-$("saveDayBtn").addEventListener("click", saveCurrentDate);
+$("saveSnapshotBtn").addEventListener("click", saveSnapshot);
 $("downloadSummaryBtn").addEventListener("click", downloadSummary);
-$("historyBody").addEventListener("click", (event) => { const button = event.target.closest("button[data-delete-date]"); if (!button) return; const history = loadHistory(); delete history[button.dataset.deleteDate]; saveHistory(history); renderHistory(); });
+$("historyBody").addEventListener("click", (event) => { const button = event.target.closest("button[data-delete-id]"); if (!button) return; saveHistory(loadHistory().filter((record) => record.id !== button.dataset.deleteId)); renderHistory(); });

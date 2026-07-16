@@ -21,13 +21,17 @@
     </section>
 
     <section class="card">
-      <div class="section-heading"><div><span class="step">2</span><h2>Read Already Cycle Counted List</h2></div><span id="alreadyStatus" class="status">Waiting for data</span></div>
-      <div class="readonly-note"><div><strong>Read-only source</strong><span>Nothing in SharePoint is edited. Copy the Item Number and Initials columns you need and paste them below.</span></div><a class="link-button" href="https://chadwellsupply-my.sharepoint.com/:x:/p/amadou_ba/IQCMEN3ck_gpQIVDpoheXttvAcB9DXGuc6mZdEp0BqZqtMc?e=l6IDP2" target="_blank" rel="noreferrer">Open SharePoint list</a></div>
-      <div class="paste-panel">
-        <label>Paste Item Number and Initials<textarea id="alreadyPaste" rows="10" placeholder="Item Number    Initials&#10;421026         DW&#10;203914         AH"></textarea></label>
-        <div class="paste-actions"><button id="readPasteBtn" class="primary" type="button">Read pasted list</button><button id="clearPasteBtn" class="secondary" type="button">Clear</button></div>
-        <p class="privacy-note">In Excel Online, highlight the Item Number and Initials columns, press Ctrl+C, then paste here with Ctrl+V.</p>
+      <div class="section-heading"><div><span class="step">2</span><h2>Read Already Cycle Counted List</h2></div><span id="alreadyStatus" class="status">Waiting for copied data</span></div>
+      <div class="readonly-note">
+        <div><strong>Read-only SharePoint source</strong><span>Open the list, copy the Item Number and Initials columns, then return here and click Read copied data. The app never edits the workbook.</span></div>
+        <a class="link-button" href="https://chadwellsupply-my.sharepoint.com/:x:/p/amadou_ba/IQCMEN3ck_gpQIVDpoheXttvAcB9DXGuc6mZdEp0BqZqtMc?e=l6IDP2" target="_blank" rel="noreferrer">Open SharePoint list</a>
       </div>
+      <div class="action-row">
+        <button id="readClipboardBtn" class="primary" type="button">Read copied data</button>
+        <button id="clearCopiedBtn" class="secondary" type="button">Clear copied counts</button>
+      </div>
+      <p class="privacy-note">In Excel Online, highlight the Item Number and Initials columns and press Ctrl+C. Your browser may ask permission to read the clipboard.</p>
+      <div id="clipboardMessage" class="message hidden"></div>
     </section>
 
     <section id="resultsSection" class="card hidden">

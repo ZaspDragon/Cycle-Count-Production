@@ -16,13 +16,11 @@ const aisleToEmployee = Object.fromEntries(
 
 const state = {
   sourceWorkbook: null,
-  sourceFileName: "",
   sourceRows: [],
   sourceHeaderIndex: 0,
   aisleTotals: null,
-  totals: null,
-  miscTotal: 0,
-  unassigned: [],
+  employeeTotals: null,
+  alreadyCountedRows: [],
   trackerWorkbook: null,
   trackerFileName: "",
 };
@@ -31,7 +29,6 @@ const $ = (id) => document.getElementById(id);
 const sourceFile = $("sourceFile");
 const sourceSheet = $("sourceSheet");
 const binColumn = $("binColumn");
-const calculateBtn = $("calculateBtn");
 const trackerFile = $("trackerFile");
 const targetSheet = $("targetSheet");
 const headerRow = $("headerRow");
@@ -72,16 +69,12 @@ function setOptions(select, options, selectedValue = "") {
   });
 }
 
-function columnLabel(index) {
-  return XLSX.utils.encode_col(index);
-}
-
 function findLikelyHeaderRow(matrix, keywords, maxRows = 25) {
   let best = { index: 0, score: -1 };
   matrix.slice(0, maxRows).forEach((row, index) => {
-    const normalizedCells = row.map(normalize);
+    const cells = row.map(normalize);
     const score = keywords.reduce(
-      (total, keyword) => total + (normalizedCells.some((cell) => cell.includes(keyword)) ? 1 : 0),
+      (total, keyword) => total + (cells.some((cell) => cell.includes(keyword)) ? 1 : 0),
       0
     );
     if (score > best.score) best = { index, score };
@@ -90,17 +83,22 @@ function findLikelyHeaderRow(matrix, keywords, maxRows = 25) {
 }
 
 function detectColumn(headers, candidates) {
-  const normalizedHeaders = headers.map(normalize);
-  const exact = normalizedHeaders.findIndex((header) => candidates.includes(header));
+  const normalized = headers.map(normalize);
+  const exact = normalized.findIndex((header) => candidates.includes(header));
   if (exact >= 0) return exact;
-  return normalizedHeaders.findIndex((header) => candidates.some((candidate) => header.includes(candidate)));
+  return normalized.findIndex((header) => candidates.some((candidate) => header.includes(candidate)));
 }
 
-function extractAisle(value) {
-  const text = String(value ?? "").trim().toUpperCase();
-  if (!text) return null;
-  const match = text.match(/^\s*([A-Z])(?:\s*[-_/]|\s|\d)/);
-  return match ? match[1] : null;
+function columnLabel(index) {
+  return XLSX.utils.encode_col(index);
+}
+
+// Only a created-count location such as C-09-12 receives automatic aisle credit.
+// Anything else is held for manual review in the Already Cycle Counted List.
+function parseCreatedCountLocation(value) {
+  const location = String(value ?? "").trim().toUpperCase();
+  const match = location.match(/^([A-L])-([0-9]{2})-([0-9]{2})$/);
+  return match ? { location, aisle: match[1] } : null;
 }
 
 function loadSourceSheet() {
@@ -111,27 +109,29 @@ function loadSourceSheet() {
     value: index,
     label: `${columnLabel(index)} — ${header || "(blank header)"}`,
   }));
-  let detected = detectColumn(headers, ["bin", "bin #", "bin number", "location", "location number"]);
+
+  let detected = detectColumn(headers, ["bin #", "bin", "bin number", "location", "location number"]);
   if (detected < 0) detected = 0;
   setOptions(binColumn, options, detected);
+
   state.sourceHeaderIndex = headerIndex;
   state.sourceRows = matrix.slice(headerIndex + 1);
-  calculateAllAisles();
+  calculateProduction();
 }
 
 sourceFile.addEventListener("change", async () => {
   const file = sourceFile.files[0];
   if (!file) return;
+
   try {
     state.sourceWorkbook = await readWorkbook(file);
-    state.sourceFileName = file.name;
     setOptions(
       sourceSheet,
       state.sourceWorkbook.SheetNames.map((name) => ({ value: name, label: name }))
     );
     loadSourceSheet();
     $("sourceControls").classList.remove("hidden");
-    $("sourceStatus").textContent = `${file.name} — every aisle calculated`;
+    $("sourceStatus").textContent = `${file.name} — calculated automatically`;
     $("sourceStatus").classList.add("success");
   } catch (error) {
     showMessage("Could not read that report. Confirm it is a valid Excel file.", true);
@@ -140,30 +140,32 @@ sourceFile.addEventListener("change", async () => {
 });
 
 sourceSheet.addEventListener("change", loadSourceSheet);
-binColumn.addEventListener("change", calculateAllAisles);
-calculateBtn.addEventListener("click", calculateAllAisles);
+binColumn.addEventListener("change", calculateProduction);
+$("calculateBtn").addEventListener("click", calculateProduction);
 
-function calculateAllAisles() {
+function calculateProduction() {
   if (!state.sourceRows.length || binColumn.value === "") return;
 
   const selectedColumn = Number(binColumn.value);
   const aisleTotals = Object.fromEntries(AISLES.map((aisle) => [aisle, 0]));
-  const miscRows = [];
+  const alreadyCountedRows = [];
   let processed = 0;
 
   state.sourceRows.forEach((row, rowOffset) => {
-    const location = row[selectedColumn];
-    if (String(location ?? "").trim() === "") return;
+    const rawLocation = row[selectedColumn];
+    const location = String(rawLocation ?? "").trim();
+    if (!location) return;
 
     processed += 1;
-    const aisle = extractAisle(location);
-    if (aisle && Object.hasOwn(aisleTotals, aisle)) {
-      aisleTotals[aisle] += 1;
+    const createdCount = parseCreatedCountLocation(location);
+
+    if (createdCount) {
+      aisleTotals[createdCount.aisle] += 1;
     } else {
-      miscRows.push({
+      alreadyCountedRows.push({
         row: state.sourceHeaderIndex + rowOffset + 2,
-        location: String(location),
-        aisle: aisle || "Unknown",
+        location,
+        reason: "Not in created-count format A-00-00",
       });
     }
   });
@@ -176,69 +178,59 @@ function calculateAllAisles() {
   );
 
   state.aisleTotals = aisleTotals;
-  state.totals = employeeTotals;
-  state.miscTotal = miscRows.length;
-  state.unassigned = miscRows;
+  state.employeeTotals = employeeTotals;
+  state.alreadyCountedRows = alreadyCountedRows;
   renderResults(processed);
 }
 
 function renderResults(processed) {
-  const assigned = Object.values(state.aisleTotals).reduce((sum, value) => sum + value, 0);
-  $("recordSummary").textContent = `${assigned} in aisles A–L + ${state.miscTotal} misc = ${processed} counted rows`;
+  const credited = Object.values(state.aisleTotals).reduce((sum, count) => sum + count, 0);
+  const held = state.alreadyCountedRows.length;
+  $("recordSummary").textContent = `${credited} credited created counts + ${held} awaiting manual credit = ${processed} rows`;
 
-  const aisleCards = AISLES.map((aisle) => {
-    const count = state.aisleTotals[aisle];
-    const employee = aisleToEmployee[aisle];
-    return `
-      <article class="summary-card">
-        <div class="summary-card-top">
-          <div>
-            <strong>Aisle ${aisle}</strong>
-            <span>${employee}</span>
-          </div>
-          <b>${count}</b>
-        </div>
-      </article>`;
-  }).join("");
-
-  const miscCard = `
+  const aisleCards = AISLES.map((aisle) => `
     <article class="summary-card">
       <div class="summary-card-top">
-        <div>
-          <strong>Misc</strong>
-          <span>Outside A–L or unreadable</span>
-        </div>
-        <b>${state.miscTotal}</b>
+        <div><strong>Aisle ${aisle}</strong><span>${aisleToEmployee[aisle]}</span></div>
+        <b>${state.aisleTotals[aisle]}</b>
       </div>
-    </article>`;
+    </article>
+  `).join("");
+
+  const reviewCard = `
+    <article class="summary-card">
+      <div class="summary-card-top">
+        <div><strong>Already Cycle Counted List</strong><span>No automatic employee credit</span></div>
+        <b>${held}</b>
+      </div>
+    </article>
+  `;
 
   const employeeCards = ASSIGNMENTS.map(({ name, aisles }) => {
-    const count = state.totals[name];
+    const count = state.employeeTotals[name];
     const percent = (count / DAILY_GOAL) * 100;
     const breakdown = aisles.map((aisle) => `${aisle}: ${state.aisleTotals[aisle]}`).join(" • ");
     return `
       <article class="summary-card">
         <div class="summary-card-top">
-          <div>
-            <strong>${name}</strong>
-            <span>${breakdown}</span>
-          </div>
+          <div><strong>${name}</strong><span>${breakdown}</span></div>
           <b>${count}</b>
         </div>
         <div class="meter"><span style="width:${Math.min(percent, 100)}%"></span></div>
         <div class="percent-row"><span>${percent.toFixed(1)}%</span><small>${count - DAILY_GOAL >= 0 ? "+" : ""}${count - DAILY_GOAL} vs goal</small></div>
-      </article>`;
+      </article>
+    `;
   }).join("");
 
-  $("summaryCards").innerHTML = aisleCards + miscCard + employeeCards;
+  $("summaryCards").innerHTML = aisleCards + reviewCard + employeeCards;
 
   const details = $("unassignedDetails");
-  if (state.unassigned.length) {
+  if (held) {
     details.classList.remove("hidden");
-    $("unassignedCount").textContent = state.miscTotal;
-    $("unassignedList").innerHTML = state.unassigned
-      .slice(0, 100)
-      .map((item) => `<div><span>Row ${item.row}</span><strong>${escapeHtml(item.location)}</strong><small>${item.aisle}</small></div>`)
+    details.querySelector("summary").innerHTML = `<span id="unassignedCount">${held}</span> rows on Already Cycle Counted List`;
+    $("unassignedList").innerHTML = state.alreadyCountedRows
+      .slice(0, 250)
+      .map((item) => `<div><span>Row ${item.row}</span><strong>${escapeHtml(item.location)}</strong><small>Manual credit</small></div>`)
       .join("");
   } else {
     details.classList.add("hidden");
@@ -258,39 +250,49 @@ function escapeHtml(value) {
 }
 
 $("downloadSummaryBtn").addEventListener("click", () => {
-  if (!state.totals || !state.aisleTotals) return;
+  if (!state.employeeTotals || !state.aisleTotals) return;
 
   const aisleRows = AISLES.map((aisle) => ({
     Aisle: aisle,
     Employee: aisleToEmployee[aisle],
-    "Cycle Counts": state.aisleTotals[aisle],
+    "Credited Created Counts": state.aisleTotals[aisle],
   }));
-  aisleRows.push({ Aisle: "Misc", Employee: "Unassigned", "Cycle Counts": state.miscTotal });
 
   const employeeRows = ASSIGNMENTS.map(({ name, aisles }) => ({
     Employee: name,
     "Assigned Aisles": aisles.join("-"),
-    "Cycle Counts": state.totals[name],
-    "Production %": state.totals[name] / DAILY_GOAL,
+    "Credited Cycle Counts": state.employeeTotals[name],
+    "Production %": state.employeeTotals[name] / DAILY_GOAL,
     "Daily Goal": DAILY_GOAL,
   }));
 
-  const aisleSheet = XLSX.utils.json_to_sheet(aisleRows);
-  aisleSheet["!cols"] = [{ wch: 12 }, { wch: 18 }, { wch: 15 }];
-
-  const employeeSheet = XLSX.utils.json_to_sheet(employeeRows);
-  for (let row = 2; row <= employeeRows.length + 1; row += 1) employeeSheet[`D${row}`].z = "0.0%";
-  employeeSheet["!cols"] = [{ wch: 16 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 12 }];
+  const reviewRows = state.alreadyCountedRows.map((item) => ({
+    "Source Row": item.row,
+    "Bin / Location": item.location,
+    Status: "Already cycle counted — assign credit manually",
+    "Credit To": "",
+  }));
 
   const workbook = XLSX.utils.book_new();
+  const aisleSheet = XLSX.utils.json_to_sheet(aisleRows);
+  const employeeSheet = XLSX.utils.json_to_sheet(employeeRows);
+  const reviewSheet = XLSX.utils.json_to_sheet(reviewRows.length ? reviewRows : [{ Status: "No rows awaiting manual credit" }]);
+
+  for (let row = 2; row <= employeeRows.length + 1; row += 1) employeeSheet[`D${row}`].z = "0.0%";
+  aisleSheet["!cols"] = [{ wch: 10 }, { wch: 18 }, { wch: 24 }];
+  employeeSheet["!cols"] = [{ wch: 16 }, { wch: 18 }, { wch: 22 }, { wch: 14 }, { wch: 12 }];
+  reviewSheet["!cols"] = [{ wch: 12 }, { wch: 22 }, { wch: 42 }, { wch: 18 }];
+
   XLSX.utils.book_append_sheet(workbook, aisleSheet, "Aisle Totals");
   XLSX.utils.book_append_sheet(workbook, employeeSheet, "Employee Production");
+  XLSX.utils.book_append_sheet(workbook, reviewSheet, "Already Cycle Counted List");
   XLSX.writeFile(workbook, `Cycle_Count_Production_${new Date().toISOString().slice(0, 10)}.xlsx`);
 });
 
 trackerFile.addEventListener("change", async () => {
   const file = trackerFile.files[0];
   if (!file) return;
+
   try {
     state.trackerWorkbook = await readWorkbook(file);
     state.trackerFileName = file.name;
@@ -346,16 +348,18 @@ function prepareTrackerColumns() {
 }
 
 $("updateTrackerBtn").addEventListener("click", () => {
-  if (!state.trackerWorkbook || !state.totals) return;
+  if (!state.trackerWorkbook || !state.employeeTotals) return;
+
   const sheetName = targetSheet.value;
   const sheet = state.trackerWorkbook.Sheets[sheetName];
   const headerIndex = Number(headerRow.value);
   const nameIndex = Number(nameColumn.value);
   const countIndex = Number(countColumn.value);
-  const percentValue = percentColumn.value;
-  const percentIndex = percentValue === "" ? null : Number(percentValue);
+  const percentIndex = percentColumn.value === "" ? null : Number(percentColumn.value);
   const addMissing = $("addMissingRows").checked;
-  const range = sheet["!ref"] ? XLSX.utils.decode_range(sheet["!ref"]) : { s: { r: 0, c: 0 }, e: { r: headerIndex, c: countIndex } };
+  const range = sheet["!ref"]
+    ? XLSX.utils.decode_range(sheet["!ref"])
+    : { s: { r: 0, c: 0 }, e: { r: headerIndex, c: countIndex } };
   const matched = new Set();
   const updates = [];
 
@@ -363,14 +367,16 @@ $("updateTrackerBtn").addEventListener("click", () => {
     const nameCell = sheet[XLSX.utils.encode_cell({ r: row, c: nameIndex })];
     const cellName = normalize(nameCell?.v);
     if (!cellName) continue;
+
     const assignment = ASSIGNMENTS.find(({ name }) => {
       const target = normalize(name);
       return cellName === target || cellName.includes(target) || target.includes(cellName);
     });
     if (!assignment) continue;
-    writeResultCells(sheet, row, countIndex, percentIndex, state.totals[assignment.name]);
+
+    writeResultCells(sheet, row, countIndex, percentIndex, state.employeeTotals[assignment.name]);
     matched.add(assignment.name);
-    updates.push(`${assignment.name}: ${state.totals[assignment.name]}`);
+    updates.push(assignment.name);
   }
 
   if (addMissing) {
@@ -378,9 +384,9 @@ $("updateTrackerBtn").addEventListener("click", () => {
     ASSIGNMENTS.forEach(({ name }) => {
       if (matched.has(name)) return;
       setCell(sheet, nextRow, nameIndex, name, "s");
-      writeResultCells(sheet, nextRow, countIndex, percentIndex, state.totals[name]);
+      writeResultCells(sheet, nextRow, countIndex, percentIndex, state.employeeTotals[name]);
       matched.add(name);
-      updates.push(`${name}: ${state.totals[name]} (new row)`);
+      updates.push(name);
       nextRow += 1;
     });
     range.e.r = Math.max(range.e.r, nextRow - 1);
@@ -390,14 +396,14 @@ $("updateTrackerBtn").addEventListener("click", () => {
   sheet["!ref"] = XLSX.utils.encode_range(range);
 
   if (!updates.length) {
-    showMessage("No employee names matched. Check the selected header and name columns, or enable “Add an employee row.”", true);
+    showMessage("No employee names matched. Check the selected tracker columns.", true);
     return;
   }
 
   const stem = state.trackerFileName.replace(/\.(xlsx|xls)$/i, "");
   const outputName = `${stem}_UPDATED_${new Date().toISOString().slice(0, 10)}.xlsx`;
   XLSX.writeFile(state.trackerWorkbook, outputName, { cellStyles: true, bookVBA: true });
-  showMessage(`Updated ${updates.length} employee rows on “${sheetName}” and downloaded ${outputName}. Misc count: ${state.miscTotal}.`);
+  showMessage(`Updated ${updates.length} employee rows. ${state.alreadyCountedRows.length} rows still need manual credit.`);
 });
 
 function setCell(sheet, row, column, value, type = "n") {
@@ -410,8 +416,7 @@ function writeResultCells(sheet, row, countIndex, percentIndex, count) {
   setCell(sheet, row, countIndex, count, "n");
   if (percentIndex !== null) {
     setCell(sheet, row, percentIndex, count / DAILY_GOAL, "n");
-    const address = XLSX.utils.encode_cell({ r: row, c: percentIndex });
-    sheet[address].z = "0.0%";
+    sheet[XLSX.utils.encode_cell({ r: row, c: percentIndex })].z = "0.0%";
   }
 }
 

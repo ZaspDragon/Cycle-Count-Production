@@ -10,88 +10,53 @@
 <body>
   <main class="app-shell">
     <header class="hero">
-      <div>
-        <p class="eyebrow">Inventory Control</p>
-        <h1>Cycle Count Production</h1>
-        <p class="subtitle">Calculate created-count production, credit the Already Cycle Counted List by initials, and save a dated Monday–Friday record without editing the source workbook.</p>
-      </div>
+      <div><p class="eyebrow">Inventory Control</p><h1>Cycle Count Production</h1><p class="subtitle">Calculate created-count production, credit the Already Cycle Counted List by initials, and save a dated Monday–Friday record without editing the source workbook.</p></div>
       <div class="goal-card"><span>Daily goal</span><strong>200</strong><small>counts = 100%</small></div>
     </header>
 
     <section class="card workday-card">
       <div class="section-heading"><div><span class="step">1</span><h2>Select the work date</h2></div><span id="weekdayStatus" class="status success"></span></div>
-      <div class="date-row">
-        <label>Production date<input id="productionDate" type="date" /></label>
-        <div class="date-help"><strong id="selectedWeekday"></strong><span>The matching weekday sheet will be read automatically.</span></div>
-      </div>
+      <div class="date-row"><label>Production date<input id="productionDate" type="date" /></label><div class="date-help"><strong id="selectedWeekday"></strong><span>The matching weekday is used for your saved record.</span></div></div>
     </section>
 
     <section class="card">
       <div class="section-heading"><div><span class="step">2</span><h2>Load Cycle Count Detail</h2></div><span id="sourceStatus" class="status">Waiting for file</span></div>
-      <label class="file-drop" for="sourceFile">
-        <strong>Choose Cycle Count Detail file</strong>
-        <span>The app automatically uses the Batch column for created counts such as C-09-12.</span>
-        <input id="sourceFile" type="file" accept=".xlsx,.xls" />
-      </label>
-      <div id="sourceControls" class="controls hidden">
-        <label>Report sheet<select id="sourceSheet"></select></label>
-        <label>Created-count / Batch column<select id="batchColumn"></select></label>
-      </div>
+      <label class="file-drop" for="sourceFile"><strong>Choose Cycle Count Detail file</strong><span>The app uses the Batch column for created counts such as C-09-12.</span><input id="sourceFile" type="file" accept=".xlsx,.xls" /></label>
+      <div id="sourceControls" class="controls hidden"><label>Report sheet<select id="sourceSheet"></select></label><label>Created-count / Batch column<select id="batchColumn"></select></label></div>
     </section>
 
     <section class="card">
-      <div class="section-heading"><div><span class="step">3</span><h2>Load Already Cycle Counted List</h2></div><span id="alreadyStatus" class="status">Waiting for file</span></div>
-      <div class="readonly-note">
-        <div><strong>Read-only source</strong><span>The app reads Item Number and Initials from Monday–Friday. It never writes to the SharePoint workbook.</span></div>
-        <a class="link-button" href="https://chadwellsupply-my.sharepoint.com/:x:/r/personal/amadou_ba_chadwellsupply_com/_layouts/15/Doc.aspx?sourcedoc=%7BDCDD108C-F893-4029-8543-A6885E5EDB6F%7D&file=Already%20cycle%20counted%20numbers.xlsx&fromShare=true&action=default&mobileredirect=true" target="_blank" rel="noreferrer">Open SharePoint list</a>
+      <div class="section-heading"><div><span class="step">3</span><h2>Read Already Cycle Counted List</h2></div><span id="alreadyStatus" class="status">Waiting for data</span></div>
+      <div class="readonly-note"><div><strong>Read-only source</strong><span>Nothing in SharePoint is edited. Copy the Item Number and Initials columns from the correct weekday tab and paste them below.</span></div><a class="link-button" href="https://chadwellsupply-my.sharepoint.com/:x:/p/amadou_ba/IQCMEN3ck_gpQIVDpoheXttvAcB9DXGuc6mZdEp0BqZqtMc?e=l6IDP2" target="_blank" rel="noreferrer">Open SharePoint list</a></div>
+      <div class="paste-panel">
+        <label>Paste Item Number and Initials
+          <textarea id="alreadyPaste" rows="10" placeholder="Item Number    Initials&#10;421026         DW&#10;203914         AH"></textarea>
+        </label>
+        <div class="paste-actions"><button id="readPasteBtn" class="primary" type="button">Read pasted list</button><button id="clearPasteBtn" class="secondary" type="button">Clear</button></div>
+        <p class="privacy-note">In Excel Online, highlight the two columns for the selected weekday, press Ctrl+C, then paste here with Ctrl+V.</p>
       </div>
-      <label class="file-drop compact" for="alreadyFile">
-        <strong>Choose the downloaded Already cycle counted numbers.xlsx</strong>
-        <span>The selected date chooses Monday, Tuesday, Wednesday, Thursday, or Friday automatically.</span>
-        <input id="alreadyFile" type="file" accept=".xlsx,.xls" />
-      </label>
     </section>
 
     <section id="resultsSection" class="card hidden">
       <div class="section-heading"><div><span class="step">4</span><h2>Review production</h2></div><span id="recordSummary" class="status success"></span></div>
       <div id="kpiStrip" class="kpi-strip"></div>
-      <h3>Production team</h3>
-      <div id="productionCards" class="summary-grid"></div>
-      <h3>Additional counters</h3>
-      <div id="otherCards" class="summary-grid compact-grid"></div>
-      <details id="reviewDetails" class="unassigned hidden">
-        <summary><span id="reviewCount">0</span> rows need review</summary>
-        <div id="reviewList" class="unassigned-list"></div>
-      </details>
-      <div class="action-row">
-        <button id="saveDayBtn" class="primary" type="button">Save this date</button>
-        <button id="downloadSummaryBtn" class="secondary" type="button">Download dated Excel summary</button>
-      </div>
+      <h3>Production team</h3><div id="productionCards" class="summary-grid"></div>
+      <h3>Additional counters</h3><div id="otherCards" class="summary-grid compact-grid"></div>
+      <details id="reviewDetails" class="unassigned hidden"><summary><span id="reviewCount">0</span> rows need review</summary><div id="reviewList" class="unassigned-list"></div></details>
+      <div class="action-row"><button id="saveDayBtn" class="primary" type="button">Save this date</button><button id="downloadSummaryBtn" class="secondary" type="button">Download dated Excel summary</button></div>
       <div id="saveMessage" class="message hidden"></div>
     </section>
 
     <section class="card">
       <div class="section-heading"><div><span class="step">5</span><h2>Saved daily records</h2></div><span id="historyStatus" class="status">Saved on this device</span></div>
-      <div class="table-wrap">
-        <table class="history-table">
-          <thead><tr><th>Date</th><th>Day</th><th>Team counts</th><th>Greg</th><th>Denise</th><th>Review</th><th></th></tr></thead>
-          <tbody id="historyBody"></tbody>
-        </table>
-      </div>
+      <div class="table-wrap"><table class="history-table"><thead><tr><th>Date</th><th>Day</th><th>Team counts</th><th>Greg</th><th>Denise</th><th>Review</th><th></th></tr></thead><tbody id="historyBody"></tbody></table></div>
       <p class="privacy-note">Saved records stay in this browser’s local storage. The SharePoint workbook remains unchanged.</p>
     </section>
 
-    <section class="card assignments">
-      <h2>Credit rules</h2>
-      <div class="assignment-grid">
-        <div><strong>Carico</strong><span>A–B • CH</span></div><div><strong>Ernie</strong><span>C–D • EH</span></div>
-        <div><strong>Cherish</strong><span>E–F • CC</span></div><div><strong>Layne</strong><span>G–H • LM</span></div>
-        <div><strong>Madison</strong><span>I–J • MJ</span></div><div><strong>Antoine</strong><span>K–L • AH</span></div>
-        <div><strong>Greg</strong><span>GR • separate</span></div><div><strong>Denise</strong><span>DW • separate</span></div>
-      </div>
-    </section>
+    <section class="card assignments"><h2>Credit rules</h2><div class="assignment-grid">
+      <div><strong>Carico</strong><span>A–B • CH</span></div><div><strong>Ernie</strong><span>C–D • EH</span></div><div><strong>Cherish</strong><span>E–F • CC</span></div><div><strong>Layne</strong><span>G–H • LM</span></div><div><strong>Madison</strong><span>I–J • MJ</span></div><div><strong>Antoine</strong><span>K–L • AH</span></div><div><strong>Greg</strong><span>GR • separate</span></div><div><strong>Denise</strong><span>DW • separate</span></div>
+    </div></section>
   </main>
-  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-  <script src="app.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script><script src="app.js"></script>
 </body>
 </html>

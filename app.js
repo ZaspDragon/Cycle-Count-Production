@@ -1,4 +1,5 @@
 const DAILY_GOAL = 200;
+const AISLES = "ABCDEFGHIJKL".split("");
 
 const ASSIGNMENTS = [
   { name: "Carico", aisles: ["A", "B"] },
@@ -17,7 +18,10 @@ const state = {
   sourceWorkbook: null,
   sourceFileName: "",
   sourceRows: [],
+  sourceHeaderIndex: 0,
+  aisleTotals: null,
   totals: null,
+  miscTotal: 0,
   unassigned: [],
   trackerWorkbook: null,
   trackerFileName: "",
@@ -110,7 +114,9 @@ function loadSourceSheet() {
   let detected = detectColumn(headers, ["bin", "bin #", "bin number", "location", "location number"]);
   if (detected < 0) detected = 0;
   setOptions(binColumn, options, detected);
+  state.sourceHeaderIndex = headerIndex;
   state.sourceRows = matrix.slice(headerIndex + 1);
+  calculateAllAisles();
 }
 
 sourceFile.addEventListener("change", async () => {
@@ -125,7 +131,7 @@ sourceFile.addEventListener("change", async () => {
     );
     loadSourceSheet();
     $("sourceControls").classList.remove("hidden");
-    $("sourceStatus").textContent = file.name;
+    $("sourceStatus").textContent = `${file.name} — every aisle calculated`;
     $("sourceStatus").classList.add("success");
   } catch (error) {
     showMessage("Could not read that report. Confirm it is a valid Excel file.", true);
@@ -134,43 +140,88 @@ sourceFile.addEventListener("change", async () => {
 });
 
 sourceSheet.addEventListener("change", loadSourceSheet);
+binColumn.addEventListener("change", calculateAllAisles);
+calculateBtn.addEventListener("click", calculateAllAisles);
 
-calculateBtn.addEventListener("click", () => {
+function calculateAllAisles() {
+  if (!state.sourceRows.length || binColumn.value === "") return;
+
   const selectedColumn = Number(binColumn.value);
-  const totals = Object.fromEntries(ASSIGNMENTS.map(({ name }) => [name, 0]));
-  const unassigned = [];
+  const aisleTotals = Object.fromEntries(AISLES.map((aisle) => [aisle, 0]));
+  const miscRows = [];
   let processed = 0;
 
   state.sourceRows.forEach((row, rowOffset) => {
     const location = row[selectedColumn];
     if (String(location ?? "").trim() === "") return;
+
     processed += 1;
     const aisle = extractAisle(location);
-    const employee = aisle ? aisleToEmployee[aisle] : null;
-    if (employee) {
-      totals[employee] += 1;
+    if (aisle && Object.hasOwn(aisleTotals, aisle)) {
+      aisleTotals[aisle] += 1;
     } else {
-      unassigned.push({ row: rowOffset + 2, location: String(location), aisle: aisle || "Unknown" });
+      miscRows.push({
+        row: state.sourceHeaderIndex + rowOffset + 2,
+        location: String(location),
+        aisle: aisle || "Unknown",
+      });
     }
   });
 
-  state.totals = totals;
-  state.unassigned = unassigned;
+  const employeeTotals = Object.fromEntries(
+    ASSIGNMENTS.map(({ name, aisles }) => [
+      name,
+      aisles.reduce((sum, aisle) => sum + aisleTotals[aisle], 0),
+    ])
+  );
+
+  state.aisleTotals = aisleTotals;
+  state.totals = employeeTotals;
+  state.miscTotal = miscRows.length;
+  state.unassigned = miscRows;
   renderResults(processed);
-});
+}
 
 function renderResults(processed) {
-  const assigned = Object.values(state.totals).reduce((sum, value) => sum + value, 0);
-  $("recordSummary").textContent = `${assigned} assigned of ${processed} rows`;
-  $("summaryCards").innerHTML = ASSIGNMENTS.map(({ name, aisles }) => {
+  const assigned = Object.values(state.aisleTotals).reduce((sum, value) => sum + value, 0);
+  $("recordSummary").textContent = `${assigned} in aisles A–L + ${state.miscTotal} misc = ${processed} counted rows`;
+
+  const aisleCards = AISLES.map((aisle) => {
+    const count = state.aisleTotals[aisle];
+    const employee = aisleToEmployee[aisle];
+    return `
+      <article class="summary-card">
+        <div class="summary-card-top">
+          <div>
+            <strong>Aisle ${aisle}</strong>
+            <span>${employee}</span>
+          </div>
+          <b>${count}</b>
+        </div>
+      </article>`;
+  }).join("");
+
+  const miscCard = `
+    <article class="summary-card">
+      <div class="summary-card-top">
+        <div>
+          <strong>Misc</strong>
+          <span>Outside A–L or unreadable</span>
+        </div>
+        <b>${state.miscTotal}</b>
+      </div>
+    </article>`;
+
+  const employeeCards = ASSIGNMENTS.map(({ name, aisles }) => {
     const count = state.totals[name];
     const percent = (count / DAILY_GOAL) * 100;
+    const breakdown = aisles.map((aisle) => `${aisle}: ${state.aisleTotals[aisle]}`).join(" • ");
     return `
       <article class="summary-card">
         <div class="summary-card-top">
           <div>
             <strong>${name}</strong>
-            <span>Aisles ${aisles.join("–")}</span>
+            <span>${breakdown}</span>
           </div>
           <b>${count}</b>
         </div>
@@ -179,10 +230,12 @@ function renderResults(processed) {
       </article>`;
   }).join("");
 
+  $("summaryCards").innerHTML = aisleCards + miscCard + employeeCards;
+
   const details = $("unassignedDetails");
   if (state.unassigned.length) {
     details.classList.remove("hidden");
-    $("unassignedCount").textContent = state.unassigned.length;
+    $("unassignedCount").textContent = state.miscTotal;
     $("unassignedList").innerHTML = state.unassigned
       .slice(0, 100)
       .map((item) => `<div><span>Row ${item.row}</span><strong>${escapeHtml(item.location)}</strong><small>${item.aisle}</small></div>`)
@@ -193,7 +246,6 @@ function renderResults(processed) {
 
   $("resultsSection").classList.remove("hidden");
   $("trackerSection").classList.remove("hidden");
-  $("resultsSection").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function escapeHtml(value) {
@@ -206,19 +258,33 @@ function escapeHtml(value) {
 }
 
 $("downloadSummaryBtn").addEventListener("click", () => {
-  if (!state.totals) return;
-  const rows = ASSIGNMENTS.map(({ name, aisles }) => ({
+  if (!state.totals || !state.aisleTotals) return;
+
+  const aisleRows = AISLES.map((aisle) => ({
+    Aisle: aisle,
+    Employee: aisleToEmployee[aisle],
+    "Cycle Counts": state.aisleTotals[aisle],
+  }));
+  aisleRows.push({ Aisle: "Misc", Employee: "Unassigned", "Cycle Counts": state.miscTotal });
+
+  const employeeRows = ASSIGNMENTS.map(({ name, aisles }) => ({
     Employee: name,
     "Assigned Aisles": aisles.join("-"),
     "Cycle Counts": state.totals[name],
     "Production %": state.totals[name] / DAILY_GOAL,
     "Daily Goal": DAILY_GOAL,
   }));
-  const sheet = XLSX.utils.json_to_sheet(rows);
-  for (let row = 2; row <= rows.length + 1; row += 1) sheet[`D${row}`].z = "0.0%";
-  sheet["!cols"] = [{ wch: 16 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 12 }];
+
+  const aisleSheet = XLSX.utils.json_to_sheet(aisleRows);
+  aisleSheet["!cols"] = [{ wch: 12 }, { wch: 18 }, { wch: 15 }];
+
+  const employeeSheet = XLSX.utils.json_to_sheet(employeeRows);
+  for (let row = 2; row <= employeeRows.length + 1; row += 1) employeeSheet[`D${row}`].z = "0.0%";
+  employeeSheet["!cols"] = [{ wch: 16 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 12 }];
+
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, sheet, "Production Summary");
+  XLSX.utils.book_append_sheet(workbook, aisleSheet, "Aisle Totals");
+  XLSX.utils.book_append_sheet(workbook, employeeSheet, "Employee Production");
   XLSX.writeFile(workbook, `Cycle_Count_Production_${new Date().toISOString().slice(0, 10)}.xlsx`);
 });
 
@@ -331,7 +397,7 @@ $("updateTrackerBtn").addEventListener("click", () => {
   const stem = state.trackerFileName.replace(/\.(xlsx|xls)$/i, "");
   const outputName = `${stem}_UPDATED_${new Date().toISOString().slice(0, 10)}.xlsx`;
   XLSX.writeFile(state.trackerWorkbook, outputName, { cellStyles: true, bookVBA: true });
-  showMessage(`Updated ${updates.length} employee rows on “${sheetName}” and downloaded ${outputName}.`);
+  showMessage(`Updated ${updates.length} employee rows on “${sheetName}” and downloaded ${outputName}. Misc count: ${state.miscTotal}.`);
 });
 
 function setCell(sheet, row, column, value, type = "n") {

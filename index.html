@@ -3,57 +3,83 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Professional cycle count production tracker with SharePoint initials credit and local saves." />
+  <meta name="description" content="Professional cycle count production tracker by assigned aisle." />
   <title>Cycle Count Production</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <main class="app-shell">
     <header class="hero">
-      <div><p class="eyebrow">Inventory Control</p><h1>Cycle Count Production</h1><p class="subtitle">Calculate created-count production, credit the Already Cycle Counted List by initials, and save the current results without editing the SharePoint workbook.</p></div>
+      <div>
+        <p class="eyebrow">Inventory Control</p>
+        <h1>Cycle Count Production</h1>
+        <p class="subtitle">Upload the Cycle Count Detail report, calculate production from created-count batches, and save or export the results.</p>
+      </div>
       <div class="goal-card"><span>Daily goal</span><strong>200</strong><small>counts = 100%</small></div>
     </header>
 
     <section class="card">
-      <div class="section-heading"><div><span class="step">1</span><h2>Load Cycle Count Detail</h2></div><span id="sourceStatus" class="status">Waiting for file</span></div>
-      <label class="file-drop" for="sourceFile"><strong>Choose Cycle Count Detail file</strong><span>The app uses the Batch column for created counts such as C-09-12.</span><input id="sourceFile" type="file" accept=".xlsx,.xls" /></label>
-      <div id="sourceControls" class="controls hidden"><label>Report sheet<select id="sourceSheet"></select></label><label>Created-count / Batch column<select id="batchColumn"></select></label></div>
-    </section>
-
-    <section class="card">
-      <div class="section-heading"><div><span class="step">2</span><h2>Read Already Cycle Counted List</h2></div><span id="alreadyStatus" class="status">Waiting for copied data</span></div>
-      <div class="readonly-note">
-        <div><strong>Read-only SharePoint source</strong><span>Open the list, copy the Item Number and Initials columns, then return here and click Read copied data. The app never edits the workbook.</span></div>
-        <a class="link-button" href="https://chadwellsupply-my.sharepoint.com/:x:/p/amadou_ba/IQCMEN3ck_gpQIVDpoheXttvAcB9DXGuc6mZdEp0BqZqtMc?e=l6IDP2" target="_blank" rel="noreferrer">Open SharePoint list</a>
+      <div class="section-heading">
+        <div><span class="step">1</span><h2>Load Cycle Count Detail</h2></div>
+        <span id="sourceStatus" class="status">Waiting for file</span>
       </div>
-      <div class="action-row">
-        <button id="readClipboardBtn" class="primary" type="button">Read copied data</button>
-        <button id="clearCopiedBtn" class="secondary" type="button">Clear copied counts</button>
+      <label class="file-drop" for="sourceFile">
+        <strong>Choose Cycle Count Detail file</strong>
+        <span>The app uses the Batch column and credits created-count batches such as C-09-12.</span>
+        <input id="sourceFile" type="file" accept=".xlsx,.xls" />
+      </label>
+      <div id="sourceControls" class="controls hidden">
+        <label>Report sheet<select id="sourceSheet"></select></label>
+        <label>Created-count / Batch column<select id="batchColumn"></select></label>
       </div>
-      <p class="privacy-note">In Excel Online, highlight the Item Number and Initials columns and press Ctrl+C. Your browser may ask permission to read the clipboard.</p>
-      <div id="clipboardMessage" class="message hidden"></div>
     </section>
 
     <section id="resultsSection" class="card hidden">
-      <div class="section-heading"><div><span class="step">3</span><h2>Review production</h2></div><span id="recordSummary" class="status success"></span></div>
+      <div class="section-heading">
+        <div><span class="step">2</span><h2>Review production</h2></div>
+        <span id="recordSummary" class="status success"></span>
+      </div>
       <div id="kpiStrip" class="kpi-strip"></div>
-      <h3>Production team</h3><div id="productionCards" class="summary-grid"></div>
-      <h3>Additional counters</h3><div id="otherCards" class="summary-grid compact-grid"></div>
-      <details id="reviewDetails" class="unassigned hidden"><summary><span id="reviewCount">0</span> rows need review</summary><div id="reviewList" class="unassigned-list"></div></details>
-      <div class="action-row"><button id="saveSnapshotBtn" class="primary" type="button">Save current results</button><button id="downloadSummaryBtn" class="secondary" type="button">Download Excel summary</button></div>
+      <h3>Production team</h3>
+      <div id="productionCards" class="summary-grid"></div>
+      <details id="reviewDetails" class="unassigned hidden">
+        <summary><span id="reviewCount">0</span> rows were not credited</summary>
+        <div id="reviewList" class="unassigned-list"></div>
+      </details>
+      <div class="action-row">
+        <button id="saveSnapshotBtn" class="primary" type="button">Save current results</button>
+        <button id="downloadSummaryBtn" class="secondary" type="button">Download Excel summary</button>
+      </div>
       <div id="saveMessage" class="message hidden"></div>
     </section>
 
     <section class="card">
-      <div class="section-heading"><div><span class="step">4</span><h2>Saved results</h2></div><span id="historyStatus" class="status">Saved on this device</span></div>
-      <div class="table-wrap"><table class="history-table"><thead><tr><th>Saved</th><th>Team counts</th><th>Greg</th><th>Denise</th><th>Review</th><th></th></tr></thead><tbody id="historyBody"></tbody></table></div>
-      <p class="privacy-note">Saved results stay in this browser’s local storage. The SharePoint workbook remains unchanged.</p>
+      <div class="section-heading">
+        <div><span class="step">3</span><h2>Saved results</h2></div>
+        <span class="status">Saved on this device</span>
+      </div>
+      <div class="table-wrap">
+        <table class="history-table">
+          <thead><tr><th>Saved</th><th>Team counts</th><th>Uncredited</th><th></th></tr></thead>
+          <tbody id="historyBody"></tbody>
+        </table>
+      </div>
+      <p class="privacy-note">Saved results stay in this browser’s local storage.</p>
     </section>
 
-    <section class="card assignments"><h2>Credit rules</h2><div class="assignment-grid">
-      <div><strong>Carico</strong><span>A–B • CH</span></div><div><strong>Ernie</strong><span>C–D • EH</span></div><div><strong>Cherish</strong><span>E–F • CC</span></div><div><strong>Layne</strong><span>G–H • LM</span></div><div><strong>Madison</strong><span>I–J • MJ</span></div><div><strong>Antoine</strong><span>K–L • AH</span></div><div><strong>Greg</strong><span>GR • separate</span></div><div><strong>Denise</strong><span>DW • separate</span></div>
-    </div></section>
+    <section class="card assignments">
+      <h2>Aisle assignments</h2>
+      <div class="assignment-grid">
+        <div><strong>Carico</strong><span>A–B</span></div>
+        <div><strong>Ernie</strong><span>C–D</span></div>
+        <div><strong>Cherish</strong><span>E–F</span></div>
+        <div><strong>Layne</strong><span>G–H</span></div>
+        <div><strong>Madison</strong><span>I–J</span></div>
+        <div><strong>Antoine</strong><span>K–L</span></div>
+      </div>
+    </section>
   </main>
-  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script><script src="app.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>

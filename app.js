@@ -60,7 +60,10 @@ function findHeaderRow(matrix, keywords, maxRows = 25) {
   matrix.slice(0, maxRows).forEach((row, index) => {
     const cells = row.map(normalize);
     const score = keywords.reduce((sum, keyword) => sum + (cells.some((cell) => cell.includes(keyword)) ? 1 : 0), 0);
-    if (score > bestScore) { bestIndex = index; bestScore = score; }
+    if (score > bestScore) {
+      bestIndex = index;
+      bestScore = score;
+    }
   });
   return bestIndex;
 }
@@ -103,27 +106,71 @@ function calculateCreatedCounts() {
   calculateTotals();
 }
 
-function parsePastedRows(text) {
-  return text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line, index) => {
-    const parts = line.includes("\t") ? line.split("\t") : line.split(/[,;]|\s{2,}/);
-    const cleaned = parts.map((part) => String(part).trim()).filter(Boolean);
-    return { row: index + 1, item: cleaned[0] || "", initials: (cleaned[1] || "").toUpperCase() };
-  }).filter((row) => !normalize(row.item).includes("item number") && !normalize(row.initials).includes("initial"));
+function parseCopiedRows(text) {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line, index) => {
+      const parts = line.includes("\t") ? line.split("\t") : line.split(/[,;]|\s{2,}/);
+      const cleaned = parts.map((part) => String(part).trim()).filter(Boolean);
+      return { row: index + 1, item: cleaned[0] || "", initials: (cleaned[1] || "").toUpperCase() };
+    })
+    .filter((row) => !normalize(row.item).includes("item number") && !normalize(row.initials).includes("initial"));
 }
 
-function readPastedList() {
-  state.pastedRows = parsePastedRows($("alreadyPaste").value);
+function applyCopiedData(text) {
+  state.pastedRows = parseCopiedRows(text);
   state.initialsByPerson = Object.fromEntries(PEOPLE.map((person) => [person.name, 0]));
   state.reviewRows = [];
+
   state.pastedRows.forEach((row) => {
     if (!row.item && !row.initials) return;
     const person = initialsMap[row.initials];
     if (person) state.initialsByPerson[person.name] += 1;
     else state.reviewRows.push({ row: row.row, item: row.item || "(blank)", initials: row.initials || "Blank" });
   });
-  $("alreadyStatus").textContent = `${state.pastedRows.length} pasted rows read`;
+
+  $("alreadyStatus").textContent = `${state.pastedRows.length} copied rows read`;
   $("alreadyStatus").classList.add("success");
+  showClipboardMessage(`${state.pastedRows.length} rows were read from the copied Excel data.`);
   calculateTotals();
+}
+
+async function readClipboardData() {
+  if (!navigator.clipboard?.readText) {
+    showClipboardMessage("Clipboard reading is not supported in this browser. Use Chrome or Edge over HTTPS.", true);
+    return;
+  }
+
+  try {
+    const text = await navigator.clipboard.readText();
+    if (!text.trim()) {
+      showClipboardMessage("The clipboard is empty. Copy the Item Number and Initials columns in Excel Online first.", true);
+      return;
+    }
+    applyCopiedData(text);
+  } catch (error) {
+    console.error(error);
+    showClipboardMessage("Clipboard access was blocked. Allow clipboard permission, then click Read copied data again.", true);
+  }
+}
+
+function clearCopiedData() {
+  state.pastedRows = [];
+  state.initialsByPerson = Object.fromEntries(PEOPLE.map((person) => [person.name, 0]));
+  state.reviewRows = [];
+  $("alreadyStatus").textContent = "Waiting for copied data";
+  $("alreadyStatus").classList.remove("success");
+  showClipboardMessage("Copied-list counts were cleared.");
+  calculateTotals();
+}
+
+function showClipboardMessage(text, isError = false) {
+  const message = $("clipboardMessage");
+  message.textContent = text;
+  message.classList.remove("hidden", "error");
+  if (isError) message.classList.add("error");
 }
 
 function calculateTotals() {
@@ -151,7 +198,7 @@ function render() {
     const initials = state.initialsByPerson[person.name] || 0;
     const total = state.totalsByPerson[person.name] || 0;
     const percent = total / DAILY_GOAL * 100;
-    return `<article class="summary-card"><div class="summary-card-top"><div><strong>${person.name}</strong><span>Created: ${created} • Initials ${person.initials}: ${initials}</span></div><b>${total}</b></div><div class="meter"><span style="width:${Math.min(percent,100)}%"></span></div><div class="percent-row"><span>${percent.toFixed(1)}%</span><small>${total - DAILY_GOAL >= 0 ? "+" : ""}${total - DAILY_GOAL} vs goal</small></div></article>`;
+    return `<article class="summary-card"><div class="summary-card-top"><div><strong>${person.name}</strong><span>Created: ${created} • Initials ${person.initials}: ${initials}</span></div><b>${total}</b></div><div class="meter"><span style="width:${Math.min(percent, 100)}%"></span></div><div class="percent-row"><span>${percent.toFixed(1)}%</span><small>${total - DAILY_GOAL >= 0 ? "+" : ""}${total - DAILY_GOAL} vs goal</small></div></article>`;
   }).join("");
 
   $("otherCards").innerHTML = PEOPLE.filter((person) => !person.production).map((person) => `<article class="summary-card"><div class="summary-card-top"><div><strong>${person.name}</strong><span>${person.initials} • tracked separately</span></div><b>${state.initialsByPerson[person.name] || 0}</b></div></article>`).join("");
@@ -161,7 +208,9 @@ function render() {
     details.classList.remove("hidden");
     $("reviewCount").textContent = reviewTotal;
     $("reviewList").innerHTML = state.reviewRows.map((row) => `<div><span>Row ${row.row}</span><strong>${escapeHtml(row.item)}</strong><small>${escapeHtml(row.initials)}</small></div>`).join("");
-  } else details.classList.add("hidden");
+  } else {
+    details.classList.add("hidden");
+  }
 }
 
 function escapeHtml(value) {
@@ -169,7 +218,11 @@ function escapeHtml(value) {
 }
 
 function loadHistory() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); } catch { return []; }
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+  } catch {
+    return [];
+  }
 }
 
 function saveHistory(history) {
@@ -213,10 +266,19 @@ function showSaveMessage(text, isError = false) {
 
 function downloadSummary() {
   const record = currentRecord();
-  const employeeRows = PEOPLE.map((person) => ({ Employee: person.name, Initials: person.initials, "Created Counts": person.production ? person.aisles.reduce((sum, aisle) => sum + record.createdByAisle[aisle], 0) : 0, "Already Counted List": record.initialsByPerson[person.name] || 0, "Total Counts": record.totalsByPerson[person.name] || 0, "Production %": person.production ? (record.totalsByPerson[person.name] || 0) / DAILY_GOAL : "" }));
+  const employeeRows = PEOPLE.map((person) => ({
+    Employee: person.name,
+    Initials: person.initials,
+    "Created Counts": person.production ? person.aisles.reduce((sum, aisle) => sum + record.createdByAisle[aisle], 0) : 0,
+    "Already Counted List": record.initialsByPerson[person.name] || 0,
+    "Total Counts": record.totalsByPerson[person.name] || 0,
+    "Production %": person.production ? (record.totalsByPerson[person.name] || 0) / DAILY_GOAL : "",
+  }));
   const workbook = XLSX.utils.book_new();
   const summary = XLSX.utils.json_to_sheet(employeeRows);
-  employeeRows.forEach((row, index) => { if (typeof row["Production %"] === "number") summary[`F${index + 2}`].z = "0.0%"; });
+  employeeRows.forEach((row, index) => {
+    if (typeof row["Production %"] === "number") summary[`F${index + 2}`].z = "0.0%";
+  });
   XLSX.utils.book_append_sheet(workbook, summary, "Production Summary");
   if (state.reviewRows.length) XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(state.reviewRows), "Needs Review");
   const stamp = new Date().toISOString().replace(/[:T]/g, "-").slice(0, 16);
@@ -224,6 +286,7 @@ function downloadSummary() {
 }
 
 renderHistory();
+
 sourceFile.addEventListener("change", async () => {
   const file = sourceFile.files[0];
   if (!file) return;
@@ -238,10 +301,16 @@ sourceFile.addEventListener("change", async () => {
     $("sourceStatus").textContent = "Could not read file";
   }
 });
+
 sourceSheet.addEventListener("change", loadDetailSheet);
 batchColumn.addEventListener("change", calculateCreatedCounts);
-$("readPasteBtn").addEventListener("click", readPastedList);
-$("clearPasteBtn").addEventListener("click", () => { $("alreadyPaste").value = ""; state.pastedRows = []; state.initialsByPerson = Object.fromEntries(PEOPLE.map((person) => [person.name, 0])); state.reviewRows = []; $("alreadyStatus").textContent = "Waiting for data"; calculateTotals(); });
+$("readClipboardBtn").addEventListener("click", readClipboardData);
+$("clearCopiedBtn").addEventListener("click", clearCopiedData);
 $("saveSnapshotBtn").addEventListener("click", saveSnapshot);
 $("downloadSummaryBtn").addEventListener("click", downloadSummary);
-$("historyBody").addEventListener("click", (event) => { const button = event.target.closest("button[data-delete-id]"); if (!button) return; saveHistory(loadHistory().filter((record) => record.id !== button.dataset.deleteId)); renderHistory(); });
+$("historyBody").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-delete-id]");
+  if (!button) return;
+  saveHistory(loadHistory().filter((record) => record.id !== button.dataset.deleteId));
+  renderHistory();
+});

@@ -3,35 +3,124 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Professional cycle count production tracker by assigned aisle." />
+  <meta name="description" content="Professional multi-branch cycle count production tracker by assigned aisle." />
   <title>Cycle Count Production</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <main class="app-shell">
+    <!-- BRANCH MANAGEMENT SECTION -->
+    <section class="branch-management card">
+      <div class="branch-header">
+        <h2>Branch Management</h2>
+        <div class="branch-controls">
+          <select id="branchSelect" class="branch-dropdown"></select>
+          <button id="addBranchBtn" class="secondary small" type="button">+ Add Branch</button>
+          <button id="renameBranchBtn" class="secondary small" type="button">Rename</button>
+          <button id="deleteBranchBtn" class="secondary small danger" type="button">Delete</button>
+        </div>
+      </div>
+      <div id="branchMessage" class="message hidden"></div>
+    </section>
+
     <header class="hero">
       <div>
         <p class="eyebrow">Inventory Control</p>
         <h1>Cycle Count Production</h1>
         <p class="subtitle">Upload the Cycle Count Detail report, calculate production from created-count batches, and save or export the results.</p>
       </div>
-      <div class="goal-card"><span>Daily goal</span><strong>200</strong><small>counts = 100%</small></div>
+      <div class="goal-card"><span>Daily goal</span><strong id="dailyGoalDisplay">200</strong><small id="dailyGoalUnit">counts = 100%</small></div>
     </header>
 
+    <!-- TEAM MEMBERS SECTION -->
+    <section class="card team-members-section">
+      <div class="section-heading">
+        <h2>Team Members</h2>
+        <button id="addTeamMemberBtn" class="secondary small" type="button">+ Add Team Member</button>
+      </div>
+      <div class="table-wrap">
+        <table class="team-table">
+          <thead>
+            <tr>
+              <th>Employee Name</th>
+              <th>Assigned Aisles</th>
+              <th></th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="teamBody"></tbody>
+        </table>
+      </div>
+      <div id="teamMessage" class="message hidden"></div>
+    </section>
+
+    <!-- TEAM MEMBER EDIT MODAL -->
+    <dialog id="teamMemberModal" class="modal">
+      <form id="teamMemberForm" class="modal-form">
+        <h3>Team Member</h3>
+        <label>
+          <span>Employee Name *</span>
+          <input id="employeeNameInput" type="text" required />
+        </label>
+        <label>
+          <span>Starting Aisle *</span>
+          <input id="startAisleInput" type="text" maxlength="1" required />
+        </label>
+        <label>
+          <span>Ending Aisle *</span>
+          <input id="endAisleInput" type="text" maxlength="1" required />
+        </label>
+        <div class="modal-actions">
+          <button type="submit" class="primary">Save</button>
+          <button type="button" class="secondary" id="teamMemberCancel">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- BRANCH MANAGEMENT MODAL -->
+    <dialog id="branchModal" class="modal">
+      <form id="branchForm" class="modal-form">
+        <h3 id="branchModalTitle">Add Branch</h3>
+        <label>
+          <span>Branch Name *</span>
+          <input id="branchNameInput" type="text" required />
+        </label>
+        <label>
+          <span>Expected Inventory Filename</span>
+          <input id="expectedFilenameInput" type="text" placeholder="e.g., Jacksonville Daily Inventory.xlsx" />
+        </label>
+        <div class="modal-actions">
+          <button type="submit" class="primary">Save</button>
+          <button type="button" class="secondary" id="branchCancel">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- INVENTORY FILE SELECTION -->
     <section class="card">
       <div class="section-heading">
-        <div><span class="step">1</span><h2>Load Cycle Count Detail</h2></div>
-        <span id="sourceStatus" class="status">Waiting for file</span>
+        <h2>Inventory File</h2>
+        <span id="fileSourceStatus" class="status">Ready</span>
       </div>
+      
+      <fieldset class="file-source-group">
+        <legend>Inventory File Source</legend>
+        <label class="radio-option">
+          <input type="radio" name="fileSource" value="manual" checked />
+          <span>Manual Upload</span>
+        </label>
+      </fieldset>
+
       <label class="file-drop" for="sourceFile">
         <strong>Choose Cycle Count Detail file</strong>
-        <span>The app uses the Batch column and credits created-count batches such as C-09-12.</span>
+        <span id="expectedFilename" class="file-hint">The app uses the Batch column and credits created-count batches such as C-09-12.</span>
         <input id="sourceFile" type="file" accept=".xlsx,.xls" />
       </label>
       <div id="sourceControls" class="controls hidden">
         <label>Report sheet<select id="sourceSheet"></select></label>
         <label>Created-count / Batch column<select id="batchColumn"></select></label>
       </div>
+      <div id="sourceStatus" class="status">Waiting for file</div>
     </section>
 
     <section id="resultsSection" class="card hidden">
@@ -64,22 +153,16 @@
           <tbody id="historyBody"></tbody>
         </table>
       </div>
-      <p class="privacy-note">Saved results stay in this browser’s local storage.</p>
+      <p class="privacy-note">Saved results stay in this browser's local storage.</p>
     </section>
 
     <section class="card assignments">
       <h2>Aisle assignments</h2>
-      <div class="assignment-grid">
-        <div><strong>Carico</strong><span>A–B</span></div>
-        <div><strong>Ernie</strong><span>C–D</span></div>
-        <div><strong>Cherish</strong><span>E–F</span></div>
-        <div><strong>Layne</strong><span>G–H</span></div>
-        <div><strong>Madison</strong><span>I–J</span></div>
-        <div><strong>Antoine</strong><span>K–L</span></div>
-      </div>
+      <div id="assignmentGrid" class="assignment-grid"></div>
     </section>
   </main>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <script src="branchManager.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

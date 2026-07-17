@@ -1,32 +1,67 @@
-/**
- * Cycle Count Production - Complete Multi-Branch Implementation
- * Full localStorage persistence, employee management, and dynamic aisle assignment
+"use strict";
+
+/*
+ * Cycle Count Production
+ *
+ * Static GitHub Pages application.
+ * Uses localStorage only.
+ *
+ * No Firebase or external database is required.
  */
 
 const DAILY_GOAL = 200;
-const BRANCH_STORAGE_KEY = "cycleCountProduction.branches.v1";
-const SELECTED_BRANCH_STORAGE_KEY = "cycleCountProduction.selectedBranch.v1";
-const SNAPSHOTS_STORAGE_KEY = "cycleCountProduction.snapshots.v3";
 
-// Default data for first-time users
-const DEFAULT_BRANCHES = [
+const STORAGE_KEYS = {
+  branches: "cycleCountProduction.branches.v1",
+  currentBranch: "cycleCountProduction.currentBranch.v1",
+  selectedBranchLegacy: "cycleCountProduction.selectedBranch.v1",
+  snapshots: "cycleCountProduction.snapshots.v3",
+};
+
+const DEFAULT_ASSIGNMENTS = [
   {
-    id: "default-branch",
-    name: "Default Branch",
-    expectedInventoryFilename: "",
-    assignments: [
-      { id: "employee-1", name: "Carico", startAisle: "A", endAisle: "B" },
-      { id: "employee-2", name: "Ernie", startAisle: "C", endAisle: "D" },
-      { id: "employee-3", name: "Cherish", startAisle: "E", endAisle: "F" },
-      { id: "employee-4", name: "Layne", startAisle: "G", endAisle: "H" },
-      { id: "employee-5", name: "Madison", startAisle: "I", endAisle: "J" },
-      { id: "employee-6", name: "Antoine", startAisle: "K", endAisle: "L" },
-    ],
+    id: createId("employee"),
+    name: "Carico",
+    startAisle: "A",
+    endAisle: "B",
+  },
+  {
+    id: createId("employee"),
+    name: "Ernie",
+    startAisle: "C",
+    endAisle: "D",
+  },
+  {
+    id: createId("employee"),
+    name: "Cherish",
+    startAisle: "E",
+    endAisle: "F",
+  },
+  {
+    id: createId("employee"),
+    name: "Layne",
+    startAisle: "G",
+    endAisle: "H",
+  },
+  {
+    id: createId("employee"),
+    name: "Madison",
+    startAisle: "I",
+    endAisle: "J",
+  },
+  {
+    id: createId("employee"),
+    name: "Antoine",
+    startAisle: "K",
+    endAisle: "L",
   },
 ];
 
-// Application state
 const state = {
+  initialized: false,
+  branches: [],
+  selectedBranchId: null,
+
   workbook: null,
   rows: [],
   headerIndex: 0,
@@ -36,331 +71,869 @@ const state = {
   uploadedFileName: "",
 };
 
-let branches = [];
-let selectedBranchId = null;
-
-// DOM utilities
-const $ = (id) => document.getElementById(id);
-
-/**
- * BRANCH STORAGE & RETRIEVAL
+/*
+ * Basic utilities
  */
 
-function loadBranches() {
+function $(id) {
+  return document.getElementById(id);
+}
+
+function createId(prefix = "id") {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
+    return `${prefix}-${crypto.randomUUID()}`;
+  }
+
+  return `${prefix}-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function normalizeText(value) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9#%]+/g, " ")
+    .trim();
+}
+
+function safelyOpenDialog(dialog) {
+  if (!dialog) {
+    return;
+  }
+
+  if (typeof dialog.showModal === "function") {
+    dialog.showModal();
+    return;
+  }
+
+  dialog.setAttribute("open", "open");
+}
+
+function safelyCloseDialog(dialog) {
+  if (!dialog) {
+    return;
+  }
+
+  if (typeof dialog.close === "function") {
+    dialog.close();
+    return;
+  }
+
+  dialog.removeAttribute("open");
+}
+
+/*
+ * Messages
+ */
+
+function showMessage(elementId, text, isError = false) {
+  const element = $(elementId);
+
+  if (!element) {
+    return;
+  }
+
+  element.textContent = text;
+  element.classList.remove("hidden", "error");
+
+  if (isError) {
+    element.classList.add("error");
+  }
+
+  window.setTimeout(() => {
+    element.classList.add("hidden");
+  }, 5000);
+}
+
+function showBranchMessage(text, isError = false) {
+  showMessage("branchMessage", text, isError);
+}
+
+function showTeamMessage(text, isError = false) {
+  showMessage("teamMessage", text, isError);
+}
+
+function showSaveMessage(text, isError = false) {
+  showMessage("saveMessage", text, isError);
+}
+
+function showAppError(text) {
+  const errorBox = $("appError");
+
+  if (!errorBox) {
+    return;
+  }
+
+  errorBox.textContent = text;
+  errorBox.classList.remove("hidden");
+}
+
+/*
+ * localStorage helpers
+ */
+
+function readStorage(key) {
   try {
-    const data = localStorage.getItem(BRANCH_STORAGE_KEY);
-    return data ? JSON.parse(data) : null;
-  } catch (e) {
-    console.error("Failed to load branches:", e);
+    return localStorage.getItem(key);
+  } catch (error) {
+    console.error(`Unable to read localStorage key "${key}".`, error);
+    showAppError(
+      "Browser storage is unavailable. Changes may not be saved."
+    );
+
     return null;
   }
 }
 
-function saveBranches() {
+function writeStorage(key, value) {
   try {
-    localStorage.setItem(BRANCH_STORAGE_KEY, JSON.stringify(branches));
-  } catch (e) {
-    console.error("Failed to save branches:", e);
+    localStorage.setItem(key, value);
+    return true;
+  } catch (error) {
+    console.error(`Unable to save localStorage key "${key}".`, error);
+    showAppError(
+      "The browser could not save your changes. Check browser storage settings."
+    );
+
+    return false;
   }
+}
+
+function parseStoredJson(key, fallback) {
+  const raw = readStorage(key);
+
+  if (!raw) {
+    return fallback;
+  }
+
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    console.error(
+      `Stored information for "${key}" could not be parsed.`,
+      error
+    );
+
+    /*
+     * Important:
+     * Do not overwrite or clear the broken value automatically.
+     */
+    showAppError(
+      "Some saved browser data could not be loaded. The original saved data was not deleted."
+    );
+
+    return fallback;
+  }
+}
+
+/*
+ * Branch migration and normalization
+ */
+
+function normalizeAssignment(rawAssignment) {
+  if (!rawAssignment || typeof rawAssignment !== "object") {
+    return null;
+  }
+
+  const name = String(rawAssignment.name ?? "").trim();
+  const startAisle = String(
+    rawAssignment.startAisle ??
+      rawAssignment.aisles?.[0] ??
+      ""
+  )
+    .trim()
+    .toUpperCase();
+
+  const endAisle = String(
+    rawAssignment.endAisle ??
+      rawAssignment.aisles?.[
+        Math.max((rawAssignment.aisles?.length ?? 1) - 1, 0)
+      ] ??
+      startAisle
+  )
+    .trim()
+    .toUpperCase();
+
+  if (!name || !startAisle || !endAisle) {
+    return null;
+  }
+
+  return {
+    id: String(rawAssignment.id || createId("employee")),
+    name,
+    startAisle,
+    endAisle,
+  };
+}
+
+function normalizeBranch(rawBranch) {
+  if (!rawBranch || typeof rawBranch !== "object") {
+    return null;
+  }
+
+  const oldEmployees = Array.isArray(rawBranch.employees)
+    ? rawBranch.employees
+    : [];
+
+  const currentAssignments = Array.isArray(rawBranch.assignments)
+    ? rawBranch.assignments
+    : [];
+
+  const sourceAssignments =
+    currentAssignments.length > 0
+      ? currentAssignments
+      : oldEmployees;
+
+  const assignments = sourceAssignments
+    .map(normalizeAssignment)
+    .filter(Boolean);
+
+  return {
+    id: String(rawBranch.id || createId("branch")),
+    name: String(
+      rawBranch.name ||
+        rawBranch.branchName ||
+        "Unnamed Branch"
+    ).trim(),
+    expectedInventoryFilename: String(
+      rawBranch.expectedInventoryFilename ??
+        rawBranch.expectedFilename ??
+        ""
+    ).trim(),
+    assignments,
+    dailyGoal: Number(rawBranch.dailyGoal) || DAILY_GOAL,
+    createdAt:
+      rawBranch.createdAt || new Date().toISOString(),
+  };
+}
+
+function createDefaultBranch() {
+  return {
+    id: createId("branch"),
+    name: "Main Branch",
+    expectedInventoryFilename: "Inventory.xlsx",
+    assignments: DEFAULT_ASSIGNMENTS.map((assignment) => ({
+      ...assignment,
+      id: createId("employee"),
+    })),
+    dailyGoal: DAILY_GOAL,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function loadBranches() {
+  const stored = parseStoredJson(STORAGE_KEYS.branches, null);
+
+  if (!Array.isArray(stored) || stored.length === 0) {
+    return [createDefaultBranch()];
+  }
+
+  const normalizedBranches = stored
+    .map(normalizeBranch)
+    .filter(Boolean);
+
+  if (normalizedBranches.length === 0) {
+    return [createDefaultBranch()];
+  }
+
+  /*
+   * Save the normalized structure after successful parsing.
+   * This preserves old employees and expectedFilename data.
+   */
+  writeStorage(
+    STORAGE_KEYS.branches,
+    JSON.stringify(normalizedBranches)
+  );
+
+  return normalizedBranches;
+}
+
+function saveBranches() {
+  return writeStorage(
+    STORAGE_KEYS.branches,
+    JSON.stringify(state.branches)
+  );
+}
+
+function loadSelectedBranchId() {
+  return (
+    readStorage(STORAGE_KEYS.currentBranch) ||
+    readStorage(STORAGE_KEYS.selectedBranchLegacy) ||
+    null
+  );
+}
+
+function saveSelectedBranchId() {
+  if (!state.selectedBranchId) {
+    return;
+  }
+
+  writeStorage(
+    STORAGE_KEYS.currentBranch,
+    state.selectedBranchId
+  );
+
+  /*
+   * Keep legacy selection key synchronized.
+   */
+  writeStorage(
+    STORAGE_KEYS.selectedBranchLegacy,
+    state.selectedBranchId
+  );
 }
 
 function getSelectedBranch() {
-  return branches.find((b) => b.id === selectedBranchId) || null;
+  return (
+    state.branches.find(
+      (branch) => branch.id === state.selectedBranchId
+    ) || null
+  );
 }
 
 function selectBranch(branchId) {
-  if (branches.find((b) => b.id === branchId)) {
-    selectedBranchId = branchId;
-    try {
-      localStorage.setItem(SELECTED_BRANCH_STORAGE_KEY, branchId);
-    } catch (e) {
-      console.error("Failed to save selected branch:", e);
-    }
-    return true;
+  const exists = state.branches.some(
+    (branch) => branch.id === branchId
+  );
+
+  if (!exists) {
+    return false;
   }
-  return false;
+
+  state.selectedBranchId = branchId;
+  saveSelectedBranchId();
+
+  return true;
 }
 
-function getAssignments() {
-  const branch = getSelectedBranch();
-  return branch ? branch.assignments : [];
-}
-
-function getAssignedAisles() {
-  const assignments = getAssignments();
-  const aisles = new Set();
-  assignments.forEach((assignment) => {
-    const range = expandAisleRange(assignment.startAisle, assignment.endAisle);
-    range.forEach((a) => aisles.add(a));
-  });
-  return Array.from(aisles).sort();
-}
-
-/**
- * AISLE RANGE UTILITIES
+/*
+ * Branch actions
  */
-
-function expandAisleRange(start, end) {
-  const startCode = start.charCodeAt(0);
-  const endCode = end.charCodeAt(0);
-  const aisles = [];
-  for (let code = startCode; code <= endCode; code++) {
-    aisles.push(String.fromCharCode(code));
-  }
-  return aisles;
-}
-
-function formatAisleRange(start, end) {
-  if (start === end) {
-    return start;
-  }
-  return `${start}–${end}`;
-}
-
-/**
- * BRANCH MANAGEMENT
- */
-
-function renderBranchDropdown() {
-  const dropdown = $("branchSelect");
-  dropdown.innerHTML = branches
-    .map(
-      (branch) =>
-        `<option value="${branch.id}" ${branch.id === selectedBranchId ? "selected" : ""}>${escapeHtml(branch.name)}</option>`
-    )
-    .join("");
-}
 
 function addBranch(name, expectedFilename = "") {
-  if (!name || !name.trim()) {
-    showBranchMessage("Branch name cannot be empty", true);
-    return false;
+  const normalizedName = String(name).trim();
+
+  if (!normalizedName) {
+    return {
+      success: false,
+      error: "Branch name cannot be empty.",
+    };
   }
 
-  if (branches.some((b) => b.name.toLowerCase() === name.toLowerCase())) {
-    showBranchMessage("Branch name already exists", true);
-    return false;
+  const duplicate = state.branches.some(
+    (branch) =>
+      branch.name.toLowerCase() ===
+      normalizedName.toLowerCase()
+  );
+
+  if (duplicate) {
+    return {
+      success: false,
+      error: "A branch with this name already exists.",
+    };
   }
 
   const newBranch = {
-    id: `branch-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-    name: name.trim(),
-    expectedInventoryFilename: expectedFilename.trim(),
+    id: createId("branch"),
+    name: normalizedName,
+    expectedInventoryFilename: String(
+      expectedFilename
+    ).trim(),
     assignments: [],
+    dailyGoal: DAILY_GOAL,
+    createdAt: new Date().toISOString(),
   };
 
-  branches.push(newBranch);
-  saveBranches();
-  selectBranch(newBranch.id);
-  return true;
-}
-
-function renameBranch(branchId, newName) {
-  if (!newName || !newName.trim()) {
-    showBranchMessage("Branch name cannot be empty", true);
-    return false;
-  }
-
-  if (branches.some((b) => b.id !== branchId && b.name.toLowerCase() === newName.toLowerCase())) {
-    showBranchMessage("Branch name already exists", true);
-    return false;
-  }
-
-  const branch = branches.find((b) => b.id === branchId);
-  if (branch) {
-    branch.name = newName.trim();
-    saveBranches();
-    return true;
-  }
-
-  return false;
-}
-
-function deleteBranch(branchId) {
-  if (branches.length === 1) {
-    showBranchMessage("Cannot delete the last remaining branch", true);
-    return false;
-  }
-
-  branches = branches.filter((b) => b.id !== branchId);
-
-  if (selectedBranchId === branchId) {
-    selectedBranchId = branches[0]?.id || null;
-    if (selectedBranchId) {
-      localStorage.setItem(SELECTED_BRANCH_STORAGE_KEY, selectedBranchId);
-    }
-  }
+  state.branches.push(newBranch);
+  state.selectedBranchId = newBranch.id;
 
   saveBranches();
-  return true;
-}
+  saveSelectedBranchId();
 
-/**
- * EMPLOYEE ASSIGNMENT MANAGEMENT
- */
-
-function addAssignment(name, startAisle, endAisle) {
-  const validation = validateAssignment(name, startAisle, endAisle);
-  if (!validation.valid) {
-    showTeamMessage(validation.error, true);
-    return false;
-  }
-
-  const branch = getSelectedBranch();
-  if (!branch) return false;
-
-  const newAssignment = {
-    id: `employee-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-    name: name.trim(),
-    startAisle: startAisle.toUpperCase(),
-    endAisle: endAisle.toUpperCase(),
+  return {
+    success: true,
+    branch: newBranch,
   };
-
-  branch.assignments.push(newAssignment);
-  saveBranches();
-  return true;
 }
 
-function updateAssignment(assignmentId, name, startAisle, endAisle) {
-  const validation = validateAssignment(name, startAisle, endAisle, assignmentId);
-  if (!validation.valid) {
-    showTeamMessage(validation.error, true);
-    return false;
+function updateBranch(
+  branchId,
+  name,
+  expectedFilename = ""
+) {
+  const branch = state.branches.find(
+    (item) => item.id === branchId
+  );
+
+  if (!branch) {
+    return {
+      success: false,
+      error: "Branch could not be found.",
+    };
+  }
+
+  const normalizedName = String(name).trim();
+
+  if (!normalizedName) {
+    return {
+      success: false,
+      error: "Branch name cannot be empty.",
+    };
+  }
+
+  const duplicate = state.branches.some(
+    (item) =>
+      item.id !== branchId &&
+      item.name.toLowerCase() ===
+        normalizedName.toLowerCase()
+  );
+
+  if (duplicate) {
+    return {
+      success: false,
+      error: "A branch with this name already exists.",
+    };
+  }
+
+  branch.name = normalizedName;
+  branch.expectedInventoryFilename = String(
+    expectedFilename
+  ).trim();
+
+  saveBranches();
+
+  return {
+    success: true,
+  };
+}
+
+function deleteSelectedBranch() {
+  if (state.branches.length <= 1) {
+    return {
+      success: false,
+      error: "You must keep at least one branch.",
+    };
   }
 
   const branch = getSelectedBranch();
-  if (!branch) return false;
 
-  const assignment = branch.assignments.find((a) => a.id === assignmentId);
-  if (!assignment) return false;
-
-  assignment.name = name.trim();
-  assignment.startAisle = startAisle.toUpperCase();
-  assignment.endAisle = endAisle.toUpperCase();
-  saveBranches();
-  return true;
-}
-
-function deleteAssignment(assignmentId) {
-  const branch = getSelectedBranch();
-  if (!branch) return false;
-
-  const assignment = branch.assignments.find((a) => a.id === assignmentId);
-  if (!assignment) return false;
-
-  if (!confirm(`Remove ${assignment.name} from the team?`)) {
-    return false;
+  if (!branch) {
+    return {
+      success: false,
+      error: "No branch is currently selected.",
+    };
   }
 
-  branch.assignments = branch.assignments.filter((a) => a.id !== assignmentId);
+  state.branches = state.branches.filter(
+    (item) => item.id !== branch.id
+  );
+
+  state.selectedBranchId = state.branches[0].id;
+
   saveBranches();
-  return true;
+  saveSelectedBranchId();
+
+  return {
+    success: true,
+  };
 }
 
-/**
- * VALIDATION
+/*
+ * Aisle and employee assignment utilities
  */
 
-function validateAssignment(name, startAisle, endAisle, excludeId = null) {
-  if (!name || !name.trim()) {
-    return { valid: false, error: "Employee name cannot be empty" };
+function expandAisleRange(startAisle, endAisle) {
+  const start = String(startAisle)
+    .trim()
+    .toUpperCase();
+
+  const end = String(endAisle)
+    .trim()
+    .toUpperCase();
+
+  const aisles = [];
+
+  if (
+    !/^[A-Z]$/.test(start) ||
+    !/^[A-Z]$/.test(end)
+  ) {
+    return aisles;
   }
 
-  if (!startAisle || !endAisle) {
-    return { valid: false, error: "Both aisles are required" };
+  const startCode = start.charCodeAt(0);
+  const endCode = end.charCodeAt(0);
+
+  for (
+    let code = startCode;
+    code <= endCode;
+    code += 1
+  ) {
+    aisles.push(String.fromCharCode(code));
   }
 
-  const start = startAisle.toUpperCase();
-  const end = endAisle.toUpperCase();
+  return aisles;
+}
 
-  if (!/^[A-Z]$/.test(start) || !/^[A-Z]$/.test(end)) {
-    return { valid: false, error: "Aisles must be A-Z" };
+function formatAisleRange(startAisle, endAisle) {
+  return startAisle === endAisle
+    ? startAisle
+    : `${startAisle}–${endAisle}`;
+}
+
+function getAssignments() {
+  return getSelectedBranch()?.assignments || [];
+}
+
+function getAssignedAisles() {
+  const assigned = new Set();
+
+  getAssignments().forEach((assignment) => {
+    expandAisleRange(
+      assignment.startAisle,
+      assignment.endAisle
+    ).forEach((aisle) => assigned.add(aisle));
+  });
+
+  return Array.from(assigned).sort();
+}
+
+function validateAssignment(
+  name,
+  startAisle,
+  endAisle,
+  excludedAssignmentId = null
+) {
+  const branch = getSelectedBranch();
+
+  if (!branch) {
+    return {
+      valid: false,
+      error: "No branch is currently selected.",
+    };
+  }
+
+  const normalizedName = String(name).trim();
+  const start = String(startAisle)
+    .trim()
+    .toUpperCase();
+
+  const end = String(endAisle)
+    .trim()
+    .toUpperCase();
+
+  if (!normalizedName) {
+    return {
+      valid: false,
+      error: "Employee name is required.",
+    };
+  }
+
+  if (!start || !end) {
+    return {
+      valid: false,
+      error: "Starting and ending aisles are required.",
+    };
+  }
+
+  if (
+    !/^[A-Z]$/.test(start) ||
+    !/^[A-Z]$/.test(end)
+  ) {
+    return {
+      valid: false,
+      error: "Aisles must be single letters from A through Z.",
+    };
   }
 
   if (start > end) {
-    return { valid: false, error: "Starting aisle cannot be after ending aisle" };
+    return {
+      valid: false,
+      error:
+        "Starting aisle cannot come after the ending aisle.",
+    };
   }
 
-  const branch = getSelectedBranch();
-  if (!branch) {
-    return { valid: false, error: "No active branch" };
+  const duplicateName = branch.assignments.some(
+    (assignment) =>
+      assignment.id !== excludedAssignmentId &&
+      assignment.name.toLowerCase() ===
+        normalizedName.toLowerCase()
+  );
+
+  if (duplicateName) {
+    return {
+      valid: false,
+      error: `${normalizedName} already exists in this branch.`,
+    };
   }
 
-  // Check for duplicate names (excluding the current assignment if editing)
-  if (
-    branch.assignments.some(
-      (a) => a.id !== excludeId && a.name.toLowerCase() === name.toLowerCase()
-    )
-  ) {
-    return { valid: false, error: `${name} already exists in this branch` };
-  }
+  const proposedAisles = expandAisleRange(start, end);
 
-  // Check for overlapping aisles (excluding the current assignment if editing)
-  const newRange = expandAisleRange(start, end);
   for (const assignment of branch.assignments) {
-    if (excludeId && assignment.id === excludeId) continue;
+    if (assignment.id === excludedAssignmentId) {
+      continue;
+    }
 
-    const existingRange = expandAisleRange(assignment.startAisle, assignment.endAisle);
-    const hasOverlap = newRange.some((aisle) => existingRange.includes(aisle));
+    const existingAisles = expandAisleRange(
+      assignment.startAisle,
+      assignment.endAisle
+    );
 
-    if (hasOverlap) {
+    const overlaps = proposedAisles.some((aisle) =>
+      existingAisles.includes(aisle)
+    );
+
+    if (overlaps) {
       return {
         valid: false,
-        error: `Aisle range overlaps with ${assignment.name}`,
+        error: `The aisle range overlaps with ${assignment.name}.`,
       };
     }
   }
 
-  return { valid: true };
+  return {
+    valid: true,
+    name: normalizedName,
+    startAisle: start,
+    endAisle: end,
+  };
 }
 
-/**
- * UI RENDERING
+function addAssignment(name, startAisle, endAisle) {
+  const branch = getSelectedBranch();
+
+  if (!branch) {
+    return {
+      success: false,
+      error: "No branch is currently selected.",
+    };
+  }
+
+  const validation = validateAssignment(
+    name,
+    startAisle,
+    endAisle
+  );
+
+  if (!validation.valid) {
+    return {
+      success: false,
+      error: validation.error,
+    };
+  }
+
+  branch.assignments.push({
+    id: createId("employee"),
+    name: validation.name,
+    startAisle: validation.startAisle,
+    endAisle: validation.endAisle,
+  });
+
+  saveBranches();
+
+  return {
+    success: true,
+  };
+}
+
+function updateAssignment(
+  assignmentId,
+  name,
+  startAisle,
+  endAisle
+) {
+  const branch = getSelectedBranch();
+
+  if (!branch) {
+    return {
+      success: false,
+      error: "No branch is currently selected.",
+    };
+  }
+
+  const assignment = branch.assignments.find(
+    (item) => item.id === assignmentId
+  );
+
+  if (!assignment) {
+    return {
+      success: false,
+      error: "Employee could not be found.",
+    };
+  }
+
+  const validation = validateAssignment(
+    name,
+    startAisle,
+    endAisle,
+    assignmentId
+  );
+
+  if (!validation.valid) {
+    return {
+      success: false,
+      error: validation.error,
+    };
+  }
+
+  assignment.name = validation.name;
+  assignment.startAisle = validation.startAisle;
+  assignment.endAisle = validation.endAisle;
+
+  saveBranches();
+
+  return {
+    success: true,
+  };
+}
+
+function deleteAssignment(assignmentId) {
+  const branch = getSelectedBranch();
+
+  if (!branch) {
+    return {
+      success: false,
+      error: "No branch is currently selected.",
+    };
+  }
+
+  const assignment = branch.assignments.find(
+    (item) => item.id === assignmentId
+  );
+
+  if (!assignment) {
+    return {
+      success: false,
+      error: "Employee could not be found.",
+    };
+  }
+
+  const confirmed = window.confirm(
+    `Remove ${assignment.name} from this branch?`
+  );
+
+  if (!confirmed) {
+    return {
+      success: false,
+      cancelled: true,
+    };
+  }
+
+  branch.assignments = branch.assignments.filter(
+    (item) => item.id !== assignmentId
+  );
+
+  saveBranches();
+
+  return {
+    success: true,
+  };
+}
+
+/*
+ * UI rendering
  */
 
+function renderBranchDropdown() {
+  const select = $("branchSelect");
+
+  if (!select) {
+    return;
+  }
+
+  select.innerHTML = state.branches
+    .map(
+      (branch) => `
+        <option
+          value="${escapeHtml(branch.id)}"
+          ${
+            branch.id === state.selectedBranchId
+              ? "selected"
+              : ""
+          }
+        >
+          ${escapeHtml(branch.name)}
+        </option>
+      `
+    )
+    .join("");
+}
+
 function renderAssignments() {
-  const table = $("teamBody");
+  const body = $("teamBody");
   const assignments = getAssignments();
 
+  if (!body) {
+    return;
+  }
+
   if (assignments.length === 0) {
-    table.innerHTML = `<tr><td colspan="4" class="empty-row">No team members. Add one to get started.</td></tr>`;
+    body.innerHTML = `
+      <tr>
+        <td colspan="4" class="empty-row">
+          No team members. Add one to get started.
+        </td>
+      </tr>
+    `;
+
     renderAssignmentGrid();
     return;
   }
 
-  table.innerHTML = assignments
+  body.innerHTML = assignments
     .map(
       (assignment) => `
-    <tr>
-      <td>${escapeHtml(assignment.name)}</td>
-      <td>${formatAisleRange(assignment.startAisle, assignment.endAisle)}</td>
-      <td><button class="team-edit-btn secondary small" data-employee-id="${assignment.id}">Edit</button></td>
-      <td><button class="team-delete-btn secondary small danger" data-employee-id="${assignment.id}">Delete</button></td>
-    </tr>
-  `
+        <tr>
+          <td>${escapeHtml(assignment.name)}</td>
+
+          <td>
+            ${escapeHtml(
+              formatAisleRange(
+                assignment.startAisle,
+                assignment.endAisle
+              )
+            )}
+          </td>
+
+          <td>
+            <button
+              type="button"
+              class="team-edit-btn secondary small"
+              data-assignment-id="${escapeHtml(
+                assignment.id
+              )}"
+            >
+              Edit
+            </button>
+          </td>
+
+          <td>
+            <button
+              type="button"
+              class="team-delete-btn secondary small danger"
+              data-assignment-id="${escapeHtml(
+                assignment.id
+              )}"
+            >
+              Delete
+            </button>
+          </td>
+        </tr>
+      `
     )
     .join("");
-
-  // Attach handlers
-  table.querySelectorAll(".team-edit-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const assignment = assignments.find((a) => a.id === btn.dataset.employeeId);
-      if (assignment) {
-        openAssignmentForm(assignment);
-      }
-    });
-  });
-
-  table.querySelectorAll(".team-delete-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      if (deleteAssignment(btn.dataset.employeeId)) {
-        showTeamMessage("Employee removed");
-        clearProductionState();
-        renderAssignments();
-        renderResults();
-      }
-    });
-  });
 
   renderAssignmentGrid();
 }
@@ -369,148 +942,186 @@ function renderAssignmentGrid() {
   const grid = $("assignmentGrid");
   const assignments = getAssignments();
 
+  if (!grid) {
+    return;
+  }
+
   if (assignments.length === 0) {
-    grid.innerHTML = `<div class="empty-assignments">No team members assigned. Add team members to get started.</div>`;
+    grid.innerHTML = `
+      <div class="empty-assignments">
+        No team members assigned.
+      </div>
+    `;
+
     return;
   }
 
   grid.innerHTML = assignments
     .map(
-      (assignment) =>
-        `<div>
-      <strong>${escapeHtml(assignment.name)}</strong>
-      <span>${formatAisleRange(assignment.startAisle, assignment.endAisle)}</span>
-    </div>`
+      (assignment) => `
+        <div>
+          <strong>${escapeHtml(assignment.name)}</strong>
+
+          <span>
+            ${escapeHtml(
+              formatAisleRange(
+                assignment.startAisle,
+                assignment.endAisle
+              )
+            )}
+          </span>
+        </div>
+      `
     )
     .join("");
 }
 
-function updateUIFromBranch() {
+function updateUIFromSelectedBranch() {
   const branch = getSelectedBranch();
-  if (!branch) return;
 
-  const assignments = branch.assignments;
-  const dailyGoal = DAILY_GOAL;
-  const teamGoal = dailyGoal * assignments.length;
+  if (!branch) {
+    showAppError(
+      "No valid branch could be loaded."
+    );
 
-  // Update daily goal display
-  $("dailyGoalDisplay").textContent = dailyGoal;
-  $("dailyGoalUnit").textContent = `counts = 100% (${assignments.length} employees)`;
-
-  // Update expected filename hint
-  const hint = $("expectedFilename");
-  if (branch.expectedInventoryFilename) {
-    hint.innerHTML = `<strong>Expected file:</strong> ${escapeHtml(branch.expectedInventoryFilename)}<br><span>The app uses the Batch column and credits created-count batches such as C-09-12.</span>`;
-  } else {
-    hint.textContent = "The app uses the Batch column and credits created-count batches such as C-09-12.";
+    return;
   }
 
   renderBranchDropdown();
   renderAssignments();
+
+  const goalDisplay = $("dailyGoalDisplay");
+  const goalUnit = $("dailyGoalUnit");
+  const expectedFilename = $("expectedFilename");
+
+  if (goalDisplay) {
+    goalDisplay.textContent = String(
+      branch.dailyGoal || DAILY_GOAL
+    );
+  }
+
+  if (goalUnit) {
+    goalUnit.textContent =
+      `counts = 100% (${branch.assignments.length} employees)`;
+  }
+
+  if (expectedFilename) {
+    if (branch.expectedInventoryFilename) {
+      expectedFilename.innerHTML = `
+        <strong>Expected file:</strong>
+        ${escapeHtml(
+          branch.expectedInventoryFilename
+        )}
+        <br>
+        <span>
+          The app uses the Batch column and credits batches such as A-09-12.
+        </span>
+      `;
+    } else {
+      expectedFilename.textContent =
+        "The app uses the Batch column and credits batches such as A-09-12.";
+    }
+  }
 }
 
-/**
- * FORM MANAGEMENT
+/*
+ * Modal forms
  */
 
-function openAssignmentForm(assignment = null) {
+function openBranchForm(mode) {
+  const modal = $("branchModal");
+  const form = $("branchForm");
+  const title = $("branchModalTitle");
+  const nameInput = $("branchNameInput");
+  const filenameInput = $("expectedFilenameInput");
+
+  if (
+    !modal ||
+    !form ||
+    !title ||
+    !nameInput ||
+    !filenameInput
+  ) {
+    return;
+  }
+
+  form.reset();
+  form.dataset.mode = mode;
+  form.dataset.branchId = "";
+
+  if (mode === "edit") {
+    const branch = getSelectedBranch();
+
+    if (!branch) {
+      showBranchMessage(
+        "No branch is selected.",
+        true
+      );
+
+      return;
+    }
+
+    title.textContent = "Edit Branch";
+    nameInput.value = branch.name;
+    filenameInput.value =
+      branch.expectedInventoryFilename || "";
+
+    form.dataset.branchId = branch.id;
+  } else {
+    title.textContent = "Add Branch";
+  }
+
+  safelyOpenDialog(modal);
+
+  window.setTimeout(() => {
+    nameInput.focus();
+  }, 50);
+}
+
+function openTeamMemberForm(assignment = null) {
   const modal = $("teamMemberModal");
   const form = $("teamMemberForm");
+  const title = $("teamMemberModalTitle");
   const nameInput = $("employeeNameInput");
   const startInput = $("startAisleInput");
   const endInput = $("endAisleInput");
 
+  if (
+    !modal ||
+    !form ||
+    !title ||
+    !nameInput ||
+    !startInput ||
+    !endInput
+  ) {
+    return;
+  }
+
+  form.reset();
+  form.dataset.assignmentId = "";
+
   if (assignment) {
+    title.textContent = "Edit Team Member";
+    form.dataset.mode = "edit";
+    form.dataset.assignmentId = assignment.id;
+
     nameInput.value = assignment.name;
     startInput.value = assignment.startAisle;
     endInput.value = assignment.endAisle;
-    form.dataset.mode = "edit";
-    form.dataset.assignmentId = assignment.id;
   } else {
-    nameInput.value = "";
-    startInput.value = "";
-    endInput.value = "";
+    title.textContent = "Add Team Member";
     form.dataset.mode = "add";
-    form.dataset.assignmentId = "";
   }
 
-  modal.showModal();
+  safelyOpenDialog(modal);
+
+  window.setTimeout(() => {
+    nameInput.focus();
+  }, 50);
 }
 
-function saveAssignment() {
-  const form = $("teamMemberForm");
-  const name = $("employeeNameInput").value.trim();
-  const startAisle = $("startAisleInput").value.trim();
-  const endAisle = $("endAisleInput").value.trim();
-
-  if (!name || !startAisle || !endAisle) {
-    showTeamMessage("All fields are required", true);
-    return false;
-  }
-
-  let success;
-  if (form.dataset.mode === "add") {
-    success = addAssignment(name, startAisle, endAisle);
-    if (success) {
-      showTeamMessage(`${name} added to team`);
-    }
-  } else {
-    success = updateAssignment(form.dataset.assignmentId, name, startAisle, endAisle);
-    if (success) {
-      showTeamMessage(`${name} updated`);
-    }
-  }
-
-  if (success) {
-    clearProductionState();
-    renderAssignments();
-    renderResults();
-    $("teamMemberModal").close();
-  }
-
-  return success;
-}
-
-function resetAssignmentForm() {
-  const form = $("teamMemberForm");
-  form.reset();
-  form.dataset.mode = "add";
-  form.dataset.assignmentId = "";
-}
-
-/**
- * MESSAGE DISPLAY
- */
-
-function showBranchMessage(text, isError = false) {
-  const message = $("branchMessage");
-  if (!message) return;
-  message.textContent = text;
-  message.classList.remove("hidden", "error");
-  if (isError) message.classList.add("error");
-  setTimeout(() => message.classList.add("hidden"), 4000);
-}
-
-function showTeamMessage(text, isError = false) {
-  const message = $("teamMessage");
-  if (!message) return;
-  message.textContent = text;
-  message.classList.remove("hidden", "error");
-  if (isError) message.classList.add("error");
-  setTimeout(() => message.classList.add("hidden"), 4000);
-}
-
-function showSaveMessage(text, isError = false) {
-  const message = $("saveMessage");
-  if (!message) return;
-  message.textContent = text;
-  message.classList.remove("hidden", "error");
-  if (isError) message.classList.add("error");
-  setTimeout(() => message.classList.add("hidden"), 4000);
-}
-
-/**
- * PRODUCTION CALCULATIONS
+/*
+ * Production state
  */
 
 function clearProductionState() {
@@ -521,26 +1132,33 @@ function clearProductionState() {
   state.employeeTotals = {};
   state.uncreditedRows = [];
   state.uploadedFileName = "";
+
   const fileInput = $("sourceFile");
-  if (fileInput) fileInput.value = "";
-  const resultsSection = $("resultsSection");
-  if (resultsSection) resultsSection.classList.add("hidden");
-  const sourceControls = $("sourceControls");
-  if (sourceControls) sourceControls.classList.add("hidden");
-  const sourceStatus = $("sourceStatus");
-  if (sourceStatus) {
-    sourceStatus.textContent = "Waiting for file";
-    sourceStatus.classList.remove("success");
+  const results = $("resultsSection");
+  const controls = $("sourceControls");
+  const status = $("sourceStatus");
+
+  if (fileInput) {
+    fileInput.value = "";
+  }
+
+  if (results) {
+    results.classList.add("hidden");
+  }
+
+  if (controls) {
+    controls.classList.add("hidden");
+  }
+
+  if (status) {
+    status.textContent = "Waiting for file";
+    status.classList.remove("success");
   }
 }
 
-function normalize(value) {
-  return String(value ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9#%]+/g, " ")
-    .trim();
-}
+/*
+ * Excel file handling
+ */
 
 function readWorkbook(file) {
   return file.arrayBuffer().then((buffer) =>
@@ -552,572 +1170,1196 @@ function readWorkbook(file) {
   );
 }
 
-function matrixFor(workbook, sheetName) {
-  return XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {
-    header: 1,
-    defval: "",
-    blankrows: false,
-    raw: false,
-  });
+function workbookMatrix(workbook, sheetName) {
+  return XLSX.utils.sheet_to_json(
+    workbook.Sheets[sheetName],
+    {
+      header: 1,
+      defval: "",
+      blankrows: false,
+      raw: false,
+    }
+  );
 }
 
-function setOptions(select, options, selectedValue = "") {
+function setSelectOptions(
+  select,
+  options,
+  selectedValue = ""
+) {
+  if (!select) {
+    return;
+  }
+
   select.innerHTML = "";
+
   options.forEach(({ value, label }) => {
     const option = document.createElement("option");
-    option.value = value;
-    option.textContent = label;
-    option.selected = String(value) === String(selectedValue);
+
+    option.value = String(value);
+    option.textContent = String(label);
+    option.selected =
+      String(value) === String(selectedValue);
+
     select.appendChild(option);
   });
 }
 
-function findHeaderRow(matrix, keywords, maxRows = 25) {
+function findHeaderRow(
+  matrix,
+  keywords,
+  maximumRows = 25
+) {
   let bestIndex = 0;
   let bestScore = -1;
-  matrix.slice(0, maxRows).forEach((row, index) => {
-    const cells = row.map(normalize);
-    const score = keywords.reduce(
-      (sum, keyword) => sum + (cells.some((cell) => cell.includes(keyword)) ? 1 : 0),
-      0
-    );
-    if (score > bestScore) {
-      bestIndex = index;
-      bestScore = score;
-    }
-  });
+
+  matrix
+    .slice(0, maximumRows)
+    .forEach((row, index) => {
+      const cells = row.map(normalizeText);
+
+      const score = keywords.reduce(
+        (total, keyword) =>
+          total +
+          (cells.some((cell) =>
+            cell.includes(keyword)
+          )
+            ? 1
+            : 0),
+        0
+      );
+
+      if (score > bestScore) {
+        bestIndex = index;
+        bestScore = score;
+      }
+    });
+
   return bestIndex;
 }
 
-function detectColumn(headers, candidates) {
-  const normalized = headers.map(normalize);
-  const exact = normalized.findIndex((header) => candidates.includes(header));
-  if (exact >= 0) return exact;
-  return normalized.findIndex((header) =>
-    candidates.some((candidate) => header.includes(candidate))
+function detectColumn(headers, possibleNames) {
+  const normalizedHeaders =
+    headers.map(normalizeText);
+
+  const exactIndex =
+    normalizedHeaders.findIndex((header) =>
+      possibleNames.includes(header)
+    );
+
+  if (exactIndex >= 0) {
+    return exactIndex;
+  }
+
+  return normalizedHeaders.findIndex((header) =>
+    possibleNames.some((name) =>
+      header.includes(name)
+    )
   );
 }
 
 function parseCreatedBatch(value) {
-  const text = String(value ?? "").trim().toUpperCase();
-  const match = text.match(/^([A-Z])-\d{2}-\d{2}$/);
+  const text = String(value ?? "")
+    .trim()
+    .toUpperCase();
+
+  /*
+   * Accept:
+   * A-09-12
+   * AA-09-12, although the first letter is used
+   */
+  const match = text.match(/^([A-Z])(?:[A-Z])?-\d{2}-\d{2}$/);
+
   return match ? match[1] : null;
 }
 
 function loadSelectedSheet() {
-  const sourceSheet = $("sourceSheet");
-  const batchColumn = $("batchColumn");
-  const matrix = matrixFor(state.workbook, sourceSheet.value);
-  const headerIndex = findHeaderRow(matrix, ["batch", "bin", "count date"]);
+  if (!state.workbook) {
+    return;
+  }
+
+  const sheetSelect = $("sourceSheet");
+  const batchSelect = $("batchColumn");
+
+  if (!sheetSelect || !batchSelect) {
+    return;
+  }
+
+  const matrix = workbookMatrix(
+    state.workbook,
+    sheetSelect.value
+  );
+
+  const headerIndex = findHeaderRow(
+    matrix,
+    ["batch", "bin", "count date"]
+  );
+
   const headers = matrix[headerIndex] || [];
-  const options = headers.map((header, index) => ({
-    value: index,
-    label: `${XLSX.utils.encode_col(index)} — ${header || "(blank header)"}`,
-  }));
 
-  let detected = detectColumn(headers, ["batch"]);
-  if (detected < 0) detected = detectColumn(headers, ["bin #", "bin"]);
-  if (detected < 0) detected = 0;
+  const options = headers.map(
+    (header, index) => ({
+      value: index,
+      label:
+        `${XLSX.utils.encode_col(index)} — ` +
+        `${header || "(blank header)"}`,
+    })
+  );
 
-  setOptions(batchColumn, options, detected);
+  let detectedColumn = detectColumn(headers, [
+    "batch",
+  ]);
+
+  if (detectedColumn < 0) {
+    detectedColumn = detectColumn(headers, [
+      "bin #",
+      "bin",
+    ]);
+  }
+
+  if (detectedColumn < 0) {
+    detectedColumn = 0;
+  }
+
+  setSelectOptions(
+    batchSelect,
+    options,
+    detectedColumn
+  );
+
   state.headerIndex = headerIndex;
   state.rows = matrix.slice(headerIndex + 1);
+
   calculateProduction();
 }
 
 function calculateProduction() {
-  const batchColumn = $("batchColumn");
+  const batchSelect = $("batchColumn");
   const assignments = getAssignments();
   const assignedAisles = getAssignedAisles();
 
-  // Initialize aisle totals with only assigned aisles
-  state.aisleTotals = Object.fromEntries(assignedAisles.map((aisle) => [aisle, 0]));
+  state.aisleTotals = Object.fromEntries(
+    assignedAisles.map((aisle) => [aisle, 0])
+  );
 
-  // Initialize employee totals
-  state.employeeTotals = Object.fromEntries(assignments.map((a) => [a.name, 0]));
+  state.employeeTotals = Object.fromEntries(
+    assignments.map((assignment) => [
+      assignment.name,
+      0,
+    ])
+  );
 
   state.uncreditedRows = [];
 
-  if (state.rows.length && batchColumn.value !== "") {
-    const column = Number(batchColumn.value);
+  if (
+    state.rows.length > 0 &&
+    batchSelect &&
+    batchSelect.value !== ""
+  ) {
+    const columnIndex = Number(
+      batchSelect.value
+    );
+
     state.rows.forEach((row, offset) => {
-      const batch = String(row[column] ?? "").trim();
-      if (!batch) return;
+      const batch = String(
+        row[columnIndex] ?? ""
+      ).trim();
+
+      if (!batch) {
+        return;
+      }
 
       const aisle = parseCreatedBatch(batch);
 
-      if (aisle && assignedAisles.includes(aisle)) {
-        // Aisle is assigned to someone
+      if (
+        aisle &&
+        assignedAisles.includes(aisle)
+      ) {
         state.aisleTotals[aisle] += 1;
-      } else if (aisle) {
-        // Aisle is valid letter but not assigned
-        state.uncreditedRows.push({
-          row: state.headerIndex + offset + 2,
-          batch,
-          reason: `Aisle ${aisle} not assigned to any employee`,
-        });
-      } else {
-        // Invalid batch format
-        state.uncreditedRows.push({
-          row: state.headerIndex + offset + 2,
-          batch,
-          reason: "Not a valid batch format (expected A-00-00)",
-        });
+        return;
       }
+
+      state.uncreditedRows.push({
+        row: state.headerIndex + offset + 2,
+        batch,
+        reason: aisle
+          ? `Aisle ${aisle} is not assigned to an employee`
+          : "Invalid batch format. Expected A-00-00.",
+      });
     });
   }
 
-  // Calculate employee totals
   assignments.forEach((assignment) => {
-    const aisles = expandAisleRange(assignment.startAisle, assignment.endAisle);
-    const total = aisles.reduce((sum, aisle) => sum + (state.aisleTotals[aisle] || 0), 0);
-    state.employeeTotals[assignment.name] = total;
+    const aisles = expandAisleRange(
+      assignment.startAisle,
+      assignment.endAisle
+    );
+
+    state.employeeTotals[assignment.name] =
+      aisles.reduce(
+        (total, aisle) =>
+          total +
+          (state.aisleTotals[aisle] || 0),
+        0
+      );
   });
 
   renderResults();
 }
 
 function renderResults() {
-  if (!state.workbook) return;
-
-  const assignments = getAssignments();
-  const credited = Object.values(state.aisleTotals).reduce((sum, count) => sum + count, 0);
-  const uncredited = state.uncreditedRows.length;
-  const teamGoal = DAILY_GOAL * assignments.length;
-
-  const resultsSection = $("resultsSection");
-  if (resultsSection) resultsSection.classList.remove("hidden");
-
-  const recordSummary = $("recordSummary");
-  if (recordSummary) recordSummary.textContent = `${credited} credited • ${uncredited} uncredited`;
-
-  const kpiStrip = $("kpiStrip");
-  if (kpiStrip) {
-    kpiStrip.innerHTML = `
-      <div class="kpi"><span>Credited created counts</span><strong>${credited}</strong></div>
-      <div class="kpi"><span>Uncredited rows</span><strong>${uncredited}</strong></div>
-      <div class="kpi"><span>Daily team goal</span><strong>${teamGoal}</strong></div>
-      <div class="kpi"><span>Team production</span><strong>${teamGoal > 0 ? ((credited / teamGoal) * 100).toFixed(1) : 0}%</strong></div>`;
+  if (!state.workbook) {
+    return;
   }
 
-  const productionCards = $("productionCards");
-  if (productionCards) {
+  const assignments = getAssignments();
+
+  const credited = Object.values(
+    state.aisleTotals
+  ).reduce(
+    (total, count) => total + Number(count),
+    0
+  );
+
+  const uncredited =
+    state.uncreditedRows.length;
+
+  const teamGoal =
+    DAILY_GOAL * assignments.length;
+
+  const results = $("resultsSection");
+  const summary = $("recordSummary");
+  const kpis = $("kpiStrip");
+  const cards = $("productionCards");
+  const details = $("reviewDetails");
+  const reviewCount = $("reviewCount");
+  const reviewList = $("reviewList");
+
+  results?.classList.remove("hidden");
+
+  if (summary) {
+    summary.textContent =
+      `${credited} credited • ${uncredited} uncredited`;
+  }
+
+  if (kpis) {
+    const teamPercentage =
+      teamGoal > 0
+        ? ((credited / teamGoal) * 100).toFixed(1)
+        : "0.0";
+
+    kpis.innerHTML = `
+      <div class="kpi">
+        <span>Credited Created Counts</span>
+        <strong>${credited}</strong>
+      </div>
+
+      <div class="kpi">
+        <span>Uncredited Rows</span>
+        <strong>${uncredited}</strong>
+      </div>
+
+      <div class="kpi">
+        <span>Daily Team Goal</span>
+        <strong>${teamGoal}</strong>
+      </div>
+
+      <div class="kpi">
+        <span>Team Production</span>
+        <strong>${teamPercentage}%</strong>
+      </div>
+    `;
+  }
+
+  if (cards) {
     if (assignments.length === 0) {
-      productionCards.innerHTML =
-        `<div class="empty-assignments">No team members to calculate production. Add team members first.</div>`;
+      cards.innerHTML = `
+        <div class="empty-assignments">
+          Add team members before calculating production.
+        </div>
+      `;
     } else {
-      productionCards.innerHTML = assignments
+      cards.innerHTML = assignments
         .map((assignment) => {
-          const total = state.employeeTotals[assignment.name] || 0;
-          const percent = (total / DAILY_GOAL) * 100;
-          const aisles = expandAisleRange(assignment.startAisle, assignment.endAisle);
-          const breakdown = aisles.map((aisle) => `${aisle}: ${state.aisleTotals[aisle] || 0}`).join(" • ");
-          return `<article class="summary-card">
-            <div class="summary-card-top">
-              <div><strong>${escapeHtml(assignment.name)}</strong><span>${breakdown}</span></div>
-              <b>${total}</b>
-            </div>
-            <div class="meter"><span style="width:${Math.min(percent, 100)}%"></span></div>
-            <div class="percent-row"><span>${percent.toFixed(1)}%</span><small>${total - DAILY_GOAL >= 0 ? "+" : ""}${total - DAILY_GOAL} vs goal</small></div>
-          </article>`;
+          const total =
+            state.employeeTotals[
+              assignment.name
+            ] || 0;
+
+          const percentage =
+            (total / DAILY_GOAL) * 100;
+
+          const aisles = expandAisleRange(
+            assignment.startAisle,
+            assignment.endAisle
+          );
+
+          const breakdown = aisles
+            .map(
+              (aisle) =>
+                `${aisle}: ${
+                  state.aisleTotals[aisle] || 0
+                }`
+            )
+            .join(" • ");
+
+          return `
+            <article class="summary-card">
+              <div class="summary-card-top">
+                <div>
+                  <strong>
+                    ${escapeHtml(assignment.name)}
+                  </strong>
+
+                  <span>
+                    ${escapeHtml(breakdown)}
+                  </span>
+                </div>
+
+                <b>${total}</b>
+              </div>
+
+              <div class="meter">
+                <span
+                  style="width:${Math.min(
+                    percentage,
+                    100
+                  )}%"
+                ></span>
+              </div>
+
+              <div class="percent-row">
+                <span>
+                  ${percentage.toFixed(1)}%
+                </span>
+
+                <small>
+                  ${
+                    total - DAILY_GOAL >= 0
+                      ? "+"
+                      : ""
+                  }${total - DAILY_GOAL} vs goal
+                </small>
+              </div>
+            </article>
+          `;
         })
         .join("");
     }
   }
 
-  const reviewDetails = $("reviewDetails");
-  if (reviewDetails) {
-    if (uncredited) {
-      reviewDetails.classList.remove("hidden");
-      const reviewCount = $("reviewCount");
-      if (reviewCount) reviewCount.textContent = uncredited;
-      const reviewList = $("reviewList");
-      if (reviewList) {
-        reviewList.innerHTML = state.uncreditedRows
+  if (
+    details &&
+    reviewCount &&
+    reviewList
+  ) {
+    if (uncredited > 0) {
+      details.classList.remove("hidden");
+      reviewCount.textContent =
+        String(uncredited);
+
+      reviewList.innerHTML =
+        state.uncreditedRows
           .slice(0, 300)
           .map(
-            (item) =>
-              `<div><span>Row ${item.row}</span><strong>${escapeHtml(item.batch)}</strong><small>${escapeHtml(item.reason || "Unassigned")}</small></div>`
+            (item) => `
+              <div>
+                <span>Row ${item.row}</span>
+                <strong>${escapeHtml(
+                  item.batch
+                )}</strong>
+                <small>${escapeHtml(
+                  item.reason
+                )}</small>
+              </div>
+            `
           )
           .join("");
-      }
     } else {
-      reviewDetails.classList.add("hidden");
+      details.classList.add("hidden");
+      reviewList.innerHTML = "";
     }
   }
 }
 
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-/**
- * HISTORY / SNAPSHOTS
+/*
+ * Snapshot history
  */
 
 function loadHistory() {
-  try {
-    return JSON.parse(localStorage.getItem(SNAPSHOTS_STORAGE_KEY) || "[]");
-  } catch {
-    return [];
-  }
+  const history = parseStoredJson(
+    STORAGE_KEYS.snapshots,
+    []
+  );
+
+  return Array.isArray(history)
+    ? history
+    : [];
 }
 
 function saveHistory(history) {
-  localStorage.setItem(SNAPSHOTS_STORAGE_KEY, JSON.stringify(history));
+  return writeStorage(
+    STORAGE_KEYS.snapshots,
+    JSON.stringify(history)
+  );
 }
 
-function currentRecord() {
+function createCurrentRecord() {
   const branch = getSelectedBranch();
+
   return {
-    id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
+    id: createId("snapshot"),
     savedAt: new Date().toISOString(),
-    branchId: branch?.id,
-    branchName: branch?.name,
-    aisleTotals: { ...state.aisleTotals },
-    employeeTotals: { ...state.employeeTotals },
-    uncreditedCount: state.uncreditedRows.length,
+    branchId: branch?.id || null,
+    branchName: branch?.name || "",
+    aisleTotals: {
+      ...state.aisleTotals,
+    },
+    employeeTotals: {
+      ...state.employeeTotals,
+    },
+    uncreditedCount:
+      state.uncreditedRows.length,
+    uploadedFileName:
+      state.uploadedFileName,
   };
 }
 
 function saveSnapshot() {
+  if (!state.workbook) {
+    showSaveMessage(
+      "Upload and process an Excel file first.",
+      true
+    );
+
+    return;
+  }
+
   const history = loadHistory();
-  const record = currentRecord();
+  const record = createCurrentRecord();
+
   history.unshift(record);
+
   saveHistory(history.slice(0, 100));
-  showSaveMessage(`Results saved at ${new Date(record.savedAt).toLocaleString()}.`);
+  renderHistory();
+
+  showSaveMessage(
+    `Results saved at ${new Date(
+      record.savedAt
+    ).toLocaleString()}.`
+  );
+}
+
+function deleteSnapshot(snapshotId) {
+  const confirmed = window.confirm(
+    "Delete this saved result?"
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  const updatedHistory = loadHistory().filter(
+    (record) => record.id !== snapshotId
+  );
+
+  saveHistory(updatedHistory);
   renderHistory();
 }
 
 function renderHistory() {
-  const records = loadHistory();
-  const historyBody = $("historyBody");
-  if (!historyBody) return;
+  const body = $("historyBody");
 
-  historyBody.innerHTML = records.length
-    ? records
-        .map((record) => {
-          const teamTotal = Object.values(record.employeeTotals || {}).reduce(
-            (sum, count) => sum + count,
-            0
-          );
-          const branchLabel = record.branchName ? ` (${record.branchName})` : "";
-          return `<tr>
-            <td>${new Date(record.savedAt).toLocaleString()}${branchLabel}</td>
-            <td>${teamTotal}</td>
-            <td>${record.uncreditedCount || 0}</td>
-            <td><button data-delete-id="${record.id}" type="button">Delete</button></td>
-          </tr>`;
-        })
-        .join("")
-    : `<tr><td colspan="4" class="empty-row">No saved results yet.</td></tr>`;
-}
-
-/**
- * DOWNLOAD FUNCTIONALITY
- */
-
-function downloadSummary() {
-  const assignments = getAssignments();
-  const assignedAisles = getAssignedAisles();
-
-  if (assignments.length === 0) {
-    showSaveMessage("Cannot download summary with no team members", true);
+  if (!body) {
     return;
   }
 
-  const employeeRows = assignments.map((assignment) => {
-    const total = state.employeeTotals[assignment.name] || 0;
-    const aisles = expandAisleRange(assignment.startAisle, assignment.endAisle);
-    return {
-      Employee: assignment.name,
-      "Assigned Aisles": formatAisleRange(assignment.startAisle, assignment.endAisle),
-      "Aisle Breakdown": aisles.map((aisle) => `${aisle}: ${state.aisleTotals[aisle] || 0}`).join(" | "),
-      "Cycle Counts": total,
-      "Production %": total / DAILY_GOAL,
-      "Daily Goal": DAILY_GOAL,
-    };
-  });
+  const history = loadHistory();
 
-  const aisleRows = assignedAisles.map((aisle) => ({
-    Aisle: aisle,
-    "Cycle Counts": state.aisleTotals[aisle] || 0,
-  }));
+  if (history.length === 0) {
+    body.innerHTML = `
+      <tr>
+        <td colspan="4" class="empty-row">
+          No saved results yet.
+        </td>
+      </tr>
+    `;
 
-  const workbook = XLSX.utils.book_new();
-  const productionSheet = XLSX.utils.json_to_sheet(employeeRows);
-  employeeRows.forEach((row, index) => {
-    productionSheet[`E${index + 2}`].z = "0.0%";
-  });
-  productionSheet["!cols"] = [
-    { wch: 16 },
+    return;
+  }
+
+  body.innerHTML = history
+    .map((record) => {
+      const total = Object.values(
+        record.employeeTotals || {}
+      ).reduce(
+        (sum, count) =>
+          sum + Number(count || 0),
+        0
+      );
+
+      return `
+        <tr>
+          <td>
+            ${escapeHtml(
+              new Date(
+                record.savedAt
+              ).toLocaleString()
+            )}
+
+            ${
+              record.branchName
+                ? `<small> (${escapeHtml(
+                    record.branchName
+                  )})</small>`
+                : ""
+            }
+          </td>
+
+          <td>${total}</td>
+
+          <td>
+            ${Number(
+              record.uncreditedCount || 0
+            )}
+          </td>
+
+          <td>
+            <button
+              type="button"
+              class="secondary small danger"
+              data-delete-snapshot-id="${escapeHtml(
+                record.id
+              )}"
+            >
+              Delete
+            </button>
+          </td>
+        </tr>
+      `;
+    })
+    .join("");
+}
+
+/*
+ * Excel export
+ */
+
+function downloadSummary() {
+  if (!state.workbook) {
+    showSaveMessage(
+      "Upload and process an Excel file first.",
+      true
+    );
+
+    return;
+  }
+
+  if (
+    typeof XLSX === "undefined"
+  ) {
+    showSaveMessage(
+      "The Excel library did not load.",
+      true
+    );
+
+    return;
+  }
+
+  const assignments = getAssignments();
+  const assignedAisles =
+    getAssignedAisles();
+
+  if (assignments.length === 0) {
+    showSaveMessage(
+      "Add team members before downloading a summary.",
+      true
+    );
+
+    return;
+  }
+
+  const employeeRows =
+    assignments.map((assignment) => {
+      const total =
+        state.employeeTotals[
+          assignment.name
+        ] || 0;
+
+      const aisles = expandAisleRange(
+        assignment.startAisle,
+        assignment.endAisle
+      );
+
+      return {
+        Employee: assignment.name,
+        "Assigned Aisles":
+          formatAisleRange(
+            assignment.startAisle,
+            assignment.endAisle
+          ),
+        "Aisle Breakdown": aisles
+          .map(
+            (aisle) =>
+              `${aisle}: ${
+                state.aisleTotals[aisle] || 0
+              }`
+          )
+          .join(" | "),
+        "Cycle Counts": total,
+        "Production %":
+          total / DAILY_GOAL,
+        "Daily Goal": DAILY_GOAL,
+      };
+    });
+
+  const aisleRows =
+    assignedAisles.map((aisle) => ({
+      Aisle: aisle,
+      "Cycle Counts":
+        state.aisleTotals[aisle] || 0,
+    }));
+
+  const workbook =
+    XLSX.utils.book_new();
+
+  const employeeSheet =
+    XLSX.utils.json_to_sheet(
+      employeeRows
+    );
+
+  employeeRows.forEach(
+    (_row, index) => {
+      const cell =
+        employeeSheet[`E${index + 2}`];
+
+      if (cell) {
+        cell.z = "0.0%";
+      }
+    }
+  );
+
+  employeeSheet["!cols"] = [
+    { wch: 20 },
     { wch: 18 },
-    { wch: 24 },
-    { wch: 14 },
-    { wch: 14 },
+    { wch: 30 },
+    { wch: 15 },
+    { wch: 15 },
     { wch: 12 },
   ];
 
-  XLSX.utils.book_append_sheet(workbook, productionSheet, "Employee Production");
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(aisleRows), "Aisle Totals");
+  XLSX.utils.book_append_sheet(
+    workbook,
+    employeeSheet,
+    "Employee Production"
+  );
 
-  if (state.uncreditedRows.length) {
+  XLSX.utils.book_append_sheet(
+    workbook,
+    XLSX.utils.json_to_sheet(
+      aisleRows
+    ),
+    "Aisle Totals"
+  );
+
+  if (
+    state.uncreditedRows.length > 0
+  ) {
     XLSX.utils.book_append_sheet(
       workbook,
-      XLSX.utils.json_to_sheet(state.uncreditedRows),
+      XLSX.utils.json_to_sheet(
+        state.uncreditedRows
+      ),
       "Uncredited Rows"
     );
   }
 
-  const stamp = new Date().toISOString().replace(/[:T]/g, "-").slice(0, 16);
   const branch = getSelectedBranch();
-  const branchName = branch?.name?.replace(/[^a-z0-9]/gi, "_") || "Export";
-  XLSX.writeFile(workbook, `Cycle_Count_${branchName}_${stamp}.xlsx`);
+
+  const safeBranchName = String(
+    branch?.name || "Branch"
+  ).replace(/[^a-z0-9]+/gi, "_");
+
+  const timestamp = new Date()
+    .toISOString()
+    .replace(/[:T]/g, "-")
+    .slice(0, 16);
+
+  XLSX.writeFile(
+    workbook,
+    `Cycle_Count_${safeBranchName}_${timestamp}.xlsx`
+  );
 }
 
-/**
- * EVENT LISTENERS SETUP
+/*
+ * Event handling
  */
 
 function setupEventListeners() {
-  // Branch management
-  const branchSelect = $("branchSelect");
-  if (branchSelect) {
-    branchSelect.addEventListener("change", () => {
-      selectBranch(branchSelect.value);
+  $("branchSelect")?.addEventListener(
+    "change",
+    (event) => {
+      selectBranch(event.target.value);
       clearProductionState();
-      updateUIFromBranch();
-    });
-  }
+      updateUIFromSelectedBranch();
+    }
+  );
 
-  const addBranchBtn = $("addBranchBtn");
-  if (addBranchBtn) {
-    addBranchBtn.addEventListener("click", () => {
-      const branchModal = $("branchModal");
-      const branchNameInput = $("branchNameInput");
-      const expectedFilenameInput = $("expectedFilenameInput");
-      const branchForm = $("branchForm");
+  $("addBranchBtn")?.addEventListener(
+    "click",
+    () => {
+      openBranchForm("add");
+    }
+  );
 
-      branchNameInput.value = "";
-      expectedFilenameInput.value = "";
-      branchForm.dataset.mode = "add";
-      branchModal.showModal();
-    });
-  }
+  $("renameBranchBtn")?.addEventListener(
+    "click",
+    () => {
+      openBranchForm("edit");
+    }
+  );
 
-  const renameBranchBtn = $("renameBranchBtn");
-  if (renameBranchBtn) {
-    renameBranchBtn.addEventListener("click", () => {
+  $("deleteBranchBtn")?.addEventListener(
+    "click",
+    () => {
       const branch = getSelectedBranch();
-      if (!branch) return;
 
-      const branchModal = $("branchModal");
-      const branchNameInput = $("branchNameInput");
-      const expectedFilenameInput = $("expectedFilenameInput");
-      const branchForm = $("branchForm");
-      const branchModalTitle = $("branchModalTitle");
+      if (!branch) {
+        showBranchMessage(
+          "No branch is selected.",
+          true
+        );
 
-      branchNameInput.value = branch.name;
-      expectedFilenameInput.value = branch.expectedInventoryFilename || "";
-      branchForm.dataset.mode = "edit";
-      branchForm.dataset.branchId = branch.id;
-      branchModalTitle.textContent = "Edit Branch";
-      branchModal.showModal();
-    });
-  }
-
-  const deleteBranchBtn = $("deleteBranchBtn");
-  if (deleteBranchBtn) {
-    deleteBranchBtn.addEventListener("click", () => {
-      const branch = getSelectedBranch();
-      if (!branch) return;
-
-      if (confirm(`Delete branch "${branch.name}"? This cannot be undone.`)) {
-        if (deleteBranch(branch.id)) {
-          showBranchMessage(`Branch deleted. Switched to ${getSelectedBranch().name}`);
-          clearProductionState();
-          updateUIFromBranch();
-        }
-      }
-    });
-  }
-
-  const branchForm = $("branchForm");
-  if (branchForm) {
-    branchForm.addEventListener("submit", (e) => {
-      e.preventDefault();
-
-      const branchNameInput = $("branchNameInput");
-      const expectedFilenameInput = $("expectedFilenameInput");
-      const name = branchNameInput.value.trim();
-      const expectedFilename = expectedFilenameInput.value.trim();
-
-      if (!name) {
-        showBranchMessage("Branch name cannot be empty", true);
         return;
       }
 
-      let success;
-      const branchModal = $("branchModal");
+      const confirmed = window.confirm(
+        `Delete branch "${branch.name}"?\n\nSaved snapshots will not be deleted.`
+      );
 
-      if (branchForm.dataset.mode === "add") {
-        success = addBranch(name, expectedFilename);
-        if (success) {
-          showBranchMessage(`Branch "${name}" created`);
-        }
+      if (!confirmed) {
+        return;
+      }
+
+      const result =
+        deleteSelectedBranch();
+
+      if (!result.success) {
+        showBranchMessage(
+          result.error,
+          true
+        );
+
+        return;
+      }
+
+      clearProductionState();
+      updateUIFromSelectedBranch();
+
+      showBranchMessage(
+        "Branch deleted successfully."
+      );
+    }
+  );
+
+  $("branchForm")?.addEventListener(
+    "submit",
+    (event) => {
+      event.preventDefault();
+
+      const form = event.currentTarget;
+
+      const name =
+        $("branchNameInput")?.value || "";
+
+      const expectedFilename =
+        $("expectedFilenameInput")?.value ||
+        "";
+
+      let result;
+
+      if (
+        form.dataset.mode === "edit"
+      ) {
+        result = updateBranch(
+          form.dataset.branchId,
+          name,
+          expectedFilename
+        );
       } else {
-        const branchId = branchForm.dataset.branchId;
-        success = renameBranch(branchId, name);
-        if (success) {
-          const branch = branches.find((b) => b.id === branchId);
-          if (branch) {
-            branch.expectedInventoryFilename = expectedFilename;
-            saveBranches();
-          }
-          showBranchMessage("Branch updated");
+        result = addBranch(
+          name,
+          expectedFilename
+        );
+      }
+
+      if (!result.success) {
+        showBranchMessage(
+          result.error,
+          true
+        );
+
+        return;
+      }
+
+      safelyCloseDialog(
+        $("branchModal")
+      );
+
+      clearProductionState();
+      updateUIFromSelectedBranch();
+
+      showBranchMessage(
+        form.dataset.mode === "edit"
+          ? "Branch updated successfully."
+          : "Branch added successfully."
+      );
+    }
+  );
+
+  $("branchCancel")?.addEventListener(
+    "click",
+    () => {
+      safelyCloseDialog(
+        $("branchModal")
+      );
+    }
+  );
+
+  $("addTeamMemberBtn")?.addEventListener(
+    "click",
+    () => {
+      openTeamMemberForm();
+    }
+  );
+
+  $("teamBody")?.addEventListener(
+    "click",
+    (event) => {
+      const editButton =
+        event.target.closest(
+          ".team-edit-btn"
+        );
+
+      if (editButton) {
+        const assignment =
+          getAssignments().find(
+            (item) =>
+              item.id ===
+              editButton.dataset.assignmentId
+          );
+
+        if (assignment) {
+          openTeamMemberForm(
+            assignment
+          );
+        }
+
+        return;
+      }
+
+      const deleteButton =
+        event.target.closest(
+          ".team-delete-btn"
+        );
+
+      if (deleteButton) {
+        const result =
+          deleteAssignment(
+            deleteButton.dataset
+              .assignmentId
+          );
+
+        if (
+          !result.success &&
+          !result.cancelled
+        ) {
+          showTeamMessage(
+            result.error,
+            true
+          );
+
+          return;
+        }
+
+        if (result.success) {
+          clearProductionState();
+          updateUIFromSelectedBranch();
+
+          showTeamMessage(
+            "Team member removed."
+          );
         }
       }
+    }
+  );
 
-      if (success) {
-        clearProductionState();
-        updateUIFromBranch();
-        branchModal.close();
+  $("teamMemberForm")?.addEventListener(
+    "submit",
+    (event) => {
+      event.preventDefault();
+
+      const form = event.currentTarget;
+
+      const name =
+        $("employeeNameInput")?.value ||
+        "";
+
+      const startAisle =
+        $("startAisleInput")?.value ||
+        "";
+
+      const endAisle =
+        $("endAisleInput")?.value ||
+        "";
+
+      let result;
+
+      if (
+        form.dataset.mode === "edit"
+      ) {
+        result = updateAssignment(
+          form.dataset.assignmentId,
+          name,
+          startAisle,
+          endAisle
+        );
+      } else {
+        result = addAssignment(
+          name,
+          startAisle,
+          endAisle
+        );
       }
-    });
-  }
 
-  const branchCancel = $("branchCancel");
-  if (branchCancel) {
-    branchCancel.addEventListener("click", () => {
-      $("branchModal").close();
-    });
-  }
+      if (!result.success) {
+        showTeamMessage(
+          result.error,
+          true
+        );
 
-  // Team member management
-  const addTeamMemberBtn = $("addTeamMemberBtn");
-  if (addTeamMemberBtn) {
-    addTeamMemberBtn.addEventListener("click", () => {
-      openAssignmentForm();
-    });
-  }
+        return;
+      }
 
-  const teamMemberForm = $("teamMemberForm");
-  if (teamMemberForm) {
-    teamMemberForm.addEventListener("submit", (e) => {
-      e.preventDefault();
-      saveAssignment();
-    });
-  }
+      safelyCloseDialog(
+        $("teamMemberModal")
+      );
 
-  const teamMemberCancel = $("teamMemberCancel");
-  if (teamMemberCancel) {
-    teamMemberCancel.addEventListener("click", () => {
-      resetAssignmentForm();
-      $("teamMemberModal").close();
-    });
-  }
+      clearProductionState();
+      updateUIFromSelectedBranch();
 
-  // File upload
-  const sourceFile = $("sourceFile");
-  if (sourceFile) {
-    sourceFile.addEventListener("change", async () => {
-      const file = sourceFile.files[0];
-      if (!file) return;
+      showTeamMessage(
+        form.dataset.mode === "edit"
+          ? "Team member updated."
+          : "Team member added."
+      );
+    }
+  );
+
+  $("teamMemberCancel")?.addEventListener(
+    "click",
+    () => {
+      safelyCloseDialog(
+        $("teamMemberModal")
+      );
+    }
+  );
+
+  $("sourceFile")?.addEventListener(
+    "change",
+    async (event) => {
+      const file =
+        event.target.files?.[0];
+
+      if (!file) {
+        return;
+      }
 
       try {
-        state.workbook = await readWorkbook(file);
-        state.uploadedFileName = file.name;
+        if (
+          typeof XLSX === "undefined"
+        ) {
+          throw new Error(
+            "SheetJS did not load."
+          );
+        }
 
-        const sourceSheet = $("sourceSheet");
-        setOptions(
-          sourceSheet,
-          state.workbook.SheetNames.map((name) => ({ value: name, label: name }))
+        state.workbook =
+          await readWorkbook(file);
+
+        state.uploadedFileName =
+          file.name;
+
+        const sheetSelect =
+          $("sourceSheet");
+
+        setSelectOptions(
+          sheetSelect,
+          state.workbook.SheetNames.map(
+            (sheetName) => ({
+              value: sheetName,
+              label: sheetName,
+            })
+          )
         );
 
         loadSelectedSheet();
 
-        const sourceControls = $("sourceControls");
-        if (sourceControls) sourceControls.classList.remove("hidden");
+        $("sourceControls")?.classList.remove(
+          "hidden"
+        );
 
-        const sourceStatus = $("sourceStatus");
-        if (sourceStatus) {
-          sourceStatus.textContent = `${file.name} loaded`;
-          sourceStatus.classList.add("success");
+        const status =
+          $("sourceStatus");
+
+        if (status) {
+          status.textContent =
+            `${file.name} loaded`;
+          status.classList.add(
+            "success"
+          );
         }
       } catch (error) {
-        console.error(error);
-        const sourceStatus = $("sourceStatus");
-        if (sourceStatus) {
-          sourceStatus.textContent = "Could not read file";
-          sourceStatus.classList.remove("success");
+        console.error(
+          "Unable to read Excel file.",
+          error
+        );
+
+        const status =
+          $("sourceStatus");
+
+        if (status) {
+          status.textContent =
+            "Could not read the selected file.";
+          status.classList.remove(
+            "success"
+          );
         }
       }
-    });
-  }
+    }
+  );
 
-  const sourceSheet = $("sourceSheet");
-  if (sourceSheet) {
-    sourceSheet.addEventListener("change", loadSelectedSheet);
-  }
+  $("sourceSheet")?.addEventListener(
+    "change",
+    loadSelectedSheet
+  );
 
-  const batchColumn = $("batchColumn");
-  if (batchColumn) {
-    batchColumn.addEventListener("change", calculateProduction);
-  }
+  $("batchColumn")?.addEventListener(
+    "change",
+    calculateProduction
+  );
 
-  const saveSnapshotBtn = $("saveSnapshotBtn");
-  if (saveSnapshotBtn) {
-    saveSnapshotBtn.addEventListener("click", saveSnapshot);
-  }
+  $("saveSnapshotBtn")?.addEventListener(
+    "click",
+    saveSnapshot
+  );
 
-  const downloadSummaryBtn = $("downloadSummaryBtn");
-  if (downloadSummaryBtn) {
-    downloadSummaryBtn.addEventListener("click", downloadSummary);
-  }
+  $("downloadSummaryBtn")?.addEventListener(
+    "click",
+    downloadSummary
+  );
 
-  const historyBody = $("historyBody");
-  if (historyBody) {
-    historyBody.addEventListener("click", (event) => {
-      const button = event.target.closest("button[data-delete-id]");
-      if (!button) return;
-      saveHistory(loadHistory().filter((record) => record.id !== button.dataset.deleteId));
-      renderHistory();
-    });
-  }
+  $("historyBody")?.addEventListener(
+    "click",
+    (event) => {
+      const button =
+        event.target.closest(
+          "[data-delete-snapshot-id]"
+        );
+
+      if (!button) {
+        return;
+      }
+
+      deleteSnapshot(
+        button.dataset
+          .deleteSnapshotId
+      );
+    }
+  );
 }
 
-/**
- * INITIALIZATION
+/*
+ * Startup and error handling
  */
 
 function initializeApp() {
-  // Load branches from localStorage
-  const savedBranches = loadBranches();
-  branches = savedBranches || DEFAULT_BRANCHES;
-  saveBranches();
-
-  // Restore selected branch
-  const savedBranchId = localStorage.getItem(SELECTED_BRANCH_STORAGE_KEY);
-  if (savedBranchId && branches.find((b) => b.id === savedBranchId)) {
-    selectedBranchId = savedBranchId;
-  } else {
-    selectedBranchId = branches[0]?.id || null;
+  if (state.initialized) {
+    return;
   }
 
-  // Initialize UI
-  renderHistory();
-  updateUIFromBranch();
-  setupEventListeners();
+  state.initialized = true;
+
+  try {
+    state.branches = loadBranches();
+
+    const storedBranchId =
+      loadSelectedBranchId();
+
+    const storedBranchExists =
+      state.branches.some(
+        (branch) =>
+          branch.id === storedBranchId
+      );
+
+    state.selectedBranchId =
+      storedBranchExists
+        ? storedBranchId
+        : state.branches[0]?.id || null;
+
+    saveSelectedBranchId();
+
+    renderHistory();
+    updateUIFromSelectedBranch();
+    setupEventListeners();
+  } catch (error) {
+    console.error(
+      "Application initialization failed.",
+      error
+    );
+
+    showAppError(
+      "The page could not finish loading. Open the browser console for details."
+    );
+  }
 }
 
-// Start when DOM is ready
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", initializeApp);
+window.addEventListener(
+  "error",
+  (event) => {
+    console.error(
+      "Unexpected application error:",
+      event.error || event.message
+    );
+
+    showAppError(
+      "An unexpected page error occurred. Refresh the page after checking the browser console."
+    );
+  }
+);
+
+window.addEventListener(
+  "unhandledrejection",
+  (event) => {
+    console.error(
+      "Unhandled promise rejection:",
+      event.reason
+    );
+
+    showAppError(
+      "A page operation failed unexpectedly. Check the browser console for details."
+    );
+  }
+);
+
+if (
+  document.readyState === "loading"
+) {
+  document.addEventListener(
+    "DOMContentLoaded",
+    initializeApp,
+    { once: true }
+  );
 } else {
   initializeApp();
 }

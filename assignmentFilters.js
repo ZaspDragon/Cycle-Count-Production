@@ -2,7 +2,11 @@
 
 /*
  * Flexible aisle assignments and date-filtered reference counts.
- * Loaded after app.js and attendance.js so the existing saved-data model stays intact.
+ *
+ * Regular employees may use multi-character aisle labels such as AA, A1,
+ * R-01, or numeric ranges with a shared prefix. The special assignment named
+ * "Already Cycle Counted Numbers" uses its saved value as a date instead of an
+ * aisle and counts rows whose report date matches that date.
  */
 (() => {
   const REFERENCE_NAME = "already cycle counted numbers";

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Cycle count production tracker by branch, employee, assigned aisle, and daily attendance." />
+  <meta name="description" content="Cycle count production tracker by branch, employee, assigned aisle, attendance, and individual goals." />
   <title>Cycle Count Production</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -31,9 +31,9 @@
         <p class="subtitle">Upload the Cycle Count Detail report, calculate production from created-count batches, and save or export the results.</p>
       </div>
       <div class="goal-card">
-        <span>Daily goal</span>
+        <span>Default daily goal</span>
         <strong id="dailyGoalDisplay">200</strong>
-        <small id="dailyGoalUnit">counts = 100%</small>
+        <small id="dailyGoalUnit">Individual goals can be changed per employee</small>
       </div>
     </header>
 
@@ -41,7 +41,7 @@
       <div class="section-heading">
         <div>
           <h2>Team Members</h2>
-          <small>Daily status resets to Present each new day.</small>
+          <small>Daily status resets to Present each new day. Assigned aisle values may include multiple letters or numbers.</small>
         </div>
         <button id="addTeamMemberBtn" class="secondary small" type="button">+ Add Team Member</button>
       </div>
@@ -50,7 +50,7 @@
           <thead>
             <tr>
               <th>Employee Name</th>
-              <th>Assigned Aisles</th>
+              <th>Assigned Aisles / Date</th>
               <th>Daily Status</th>
               <th>Edit</th>
               <th>Delete</th>
@@ -66,8 +66,9 @@
       <form id="teamMemberForm" class="modal-form">
         <h3 id="teamMemberModalTitle">Team Member</h3>
         <label><span>Employee Name *</span><input id="employeeNameInput" type="text" autocomplete="off" required /></label>
-        <label><span>Starting Aisle *</span><input id="startAisleInput" type="text" maxlength="1" autocomplete="off" required /></label>
-        <label><span>Ending Aisle *</span><input id="endAisleInput" type="text" maxlength="1" autocomplete="off" required /></label>
+        <label><span>Starting Aisle *</span><input id="startAisleInput" type="text" maxlength="30" autocomplete="off" required /></label>
+        <label><span>Ending Aisle *</span><input id="endAisleInput" type="text" maxlength="30" autocomplete="off" required /></label>
+        <label><span>Daily Production Goal *</span><input id="employeeGoalInput" type="number" min="1" max="10000" step="1" value="200" inputmode="numeric" required /></label>
         <div class="modal-actions">
           <button type="submit" class="primary">Save</button>
           <button type="button" class="secondary" id="teamMemberCancel">Cancel</button>
@@ -98,7 +99,7 @@
       </fieldset>
       <label class="file-drop" for="sourceFile">
         <strong>Choose Cycle Count Detail file</strong>
-        <span id="expectedFilename" class="file-hint">The app uses the Batch column and credits batches such as A-09-12.</span>
+        <span id="expectedFilename" class="file-hint">The app uses the Batch column and credits batches such as A-09-12, AA-09-12, or A1-09-12.</span>
         <input id="sourceFile" type="file" accept=".xlsx,.xls" />
       </label>
       <div id="sourceControls" class="controls hidden">
@@ -150,5 +151,7 @@
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script src="app.js"></script>
   <script src="attendance.js"></script>
+  <script src="assignmentFilters.js"></script>
+  <script src="employeeGoals.js"></script>
 </body>
 </html>

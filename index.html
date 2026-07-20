@@ -3,84 +3,33 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
-  <meta
-    name="description"
-    content="Cycle count production tracker by branch, employee, and assigned aisle."
-  />
-
+  <meta name="description" content="Cycle count production tracker by branch, employee, assigned aisle, and daily attendance." />
   <title>Cycle Count Production</title>
-
   <link rel="stylesheet" href="styles.css" />
 </head>
-
 <body>
   <main class="app-shell">
+    <div id="appError" class="message error hidden" role="alert"></div>
 
-    <div
-      id="appError"
-      class="message error hidden"
-      role="alert"
-    ></div>
-
-    <!-- BRANCH MANAGEMENT -->
     <section class="branch-management card">
       <div class="branch-header">
         <h2>Branch Management</h2>
-
         <div class="branch-controls">
-          <select
-            id="branchSelect"
-            class="branch-dropdown"
-            aria-label="Select branch"
-          ></select>
-
-          <button
-            id="addBranchBtn"
-            class="secondary small"
-            type="button"
-          >
-            + Add Branch
-          </button>
-
-          <button
-            id="renameBranchBtn"
-            class="secondary small"
-            type="button"
-          >
-            Rename
-          </button>
-
-          <button
-            id="deleteBranchBtn"
-            class="secondary small danger"
-            type="button"
-          >
-            Delete
-          </button>
+          <select id="branchSelect" class="branch-dropdown" aria-label="Select branch"></select>
+          <button id="addBranchBtn" class="secondary small" type="button">+ Add Branch</button>
+          <button id="renameBranchBtn" class="secondary small" type="button">Rename</button>
+          <button id="deleteBranchBtn" class="secondary small danger" type="button">Delete</button>
         </div>
       </div>
-
-      <div
-        id="branchMessage"
-        class="message hidden"
-        role="status"
-      ></div>
+      <div id="branchMessage" class="message hidden" role="status"></div>
     </section>
 
-    <!-- HEADER -->
     <header class="hero">
       <div>
         <p class="eyebrow">Inventory Control</p>
-
         <h1>Cycle Count Production</h1>
-
-        <p class="subtitle">
-          Upload the Cycle Count Detail report, calculate production from
-          created-count batches, and save or export the results.
-        </p>
+        <p class="subtitle">Upload the Cycle Count Detail report, calculate production from created-count batches, and save or export the results.</p>
       </div>
-
       <div class="goal-card">
         <span>Daily goal</span>
         <strong id="dailyGoalDisplay">200</strong>
@@ -88,303 +37,118 @@
       </div>
     </header>
 
-    <!-- TEAM MEMBERS -->
     <section class="card team-members-section">
       <div class="section-heading">
-        <h2>Team Members</h2>
-
-        <button
-          id="addTeamMemberBtn"
-          class="secondary small"
-          type="button"
-        >
-          + Add Team Member
-        </button>
+        <div>
+          <h2>Team Members</h2>
+          <small>Daily status resets to Present each new day.</small>
+        </div>
+        <button id="addTeamMemberBtn" class="secondary small" type="button">+ Add Team Member</button>
       </div>
-
       <div class="table-wrap">
         <table class="team-table">
           <thead>
             <tr>
               <th>Employee Name</th>
               <th>Assigned Aisles</th>
+              <th>Daily Status</th>
               <th>Edit</th>
               <th>Delete</th>
             </tr>
           </thead>
-
           <tbody id="teamBody"></tbody>
         </table>
       </div>
-
-      <div
-        id="teamMessage"
-        class="message hidden"
-        role="status"
-      ></div>
+      <div id="teamMessage" class="message hidden" role="status"></div>
     </section>
 
-    <!-- TEAM MEMBER MODAL -->
     <dialog id="teamMemberModal" class="modal">
       <form id="teamMemberForm" class="modal-form">
         <h3 id="teamMemberModalTitle">Team Member</h3>
-
-        <label>
-          <span>Employee Name *</span>
-          <input
-            id="employeeNameInput"
-            type="text"
-            autocomplete="off"
-            required
-          />
-        </label>
-
-        <label>
-          <span>Starting Aisle *</span>
-          <input
-            id="startAisleInput"
-            type="text"
-            maxlength="1"
-            autocomplete="off"
-            required
-          />
-        </label>
-
-        <label>
-          <span>Ending Aisle *</span>
-          <input
-            id="endAisleInput"
-            type="text"
-            maxlength="1"
-            autocomplete="off"
-            required
-          />
-        </label>
-
+        <label><span>Employee Name *</span><input id="employeeNameInput" type="text" autocomplete="off" required /></label>
+        <label><span>Starting Aisle *</span><input id="startAisleInput" type="text" maxlength="1" autocomplete="off" required /></label>
+        <label><span>Ending Aisle *</span><input id="endAisleInput" type="text" maxlength="1" autocomplete="off" required /></label>
         <div class="modal-actions">
-          <button type="submit" class="primary">
-            Save
-          </button>
-
-          <button
-            type="button"
-            class="secondary"
-            id="teamMemberCancel"
-          >
-            Cancel
-          </button>
+          <button type="submit" class="primary">Save</button>
+          <button type="button" class="secondary" id="teamMemberCancel">Cancel</button>
         </div>
       </form>
     </dialog>
 
-    <!-- BRANCH MODAL -->
     <dialog id="branchModal" class="modal">
       <form id="branchForm" class="modal-form">
         <h3 id="branchModalTitle">Add Branch</h3>
-
-        <label>
-          <span>Branch Name *</span>
-          <input
-            id="branchNameInput"
-            type="text"
-            autocomplete="off"
-            required
-          />
-        </label>
-
-        <label>
-          <span>Expected Inventory Filename</span>
-          <input
-            id="expectedFilenameInput"
-            type="text"
-            autocomplete="off"
-            placeholder="Example: Daily Inventory.xlsx"
-          />
-        </label>
-
+        <label><span>Branch Name *</span><input id="branchNameInput" type="text" autocomplete="off" required /></label>
+        <label><span>Expected Inventory Filename</span><input id="expectedFilenameInput" type="text" autocomplete="off" placeholder="Example: Daily Inventory.xlsx" /></label>
         <div class="modal-actions">
-          <button type="submit" class="primary">
-            Save
-          </button>
-
-          <button
-            type="button"
-            class="secondary"
-            id="branchCancel"
-          >
-            Cancel
-          </button>
+          <button type="submit" class="primary">Save</button>
+          <button type="button" class="secondary" id="branchCancel">Cancel</button>
         </div>
       </form>
     </dialog>
 
-    <!-- INVENTORY FILE -->
     <section class="card">
       <div class="section-heading">
         <h2>Inventory File</h2>
-
-        <span id="fileSourceStatus" class="status">
-          Ready
-        </span>
+        <span id="fileSourceStatus" class="status">Ready</span>
       </div>
-
       <fieldset class="file-source-group">
         <legend>Inventory File Source</legend>
-
-        <label class="radio-option">
-          <input
-            type="radio"
-            name="fileSource"
-            value="manual"
-            checked
-          />
-
-          <span>Manual Upload</span>
-        </label>
+        <label class="radio-option"><input type="radio" name="fileSource" value="manual" checked /><span>Manual Upload</span></label>
       </fieldset>
-
       <label class="file-drop" for="sourceFile">
         <strong>Choose Cycle Count Detail file</strong>
-
-        <span id="expectedFilename" class="file-hint">
-          The app uses the Batch column and credits batches such as A-09-12.
-        </span>
-
-        <input
-          id="sourceFile"
-          type="file"
-          accept=".xlsx,.xls"
-        />
+        <span id="expectedFilename" class="file-hint">The app uses the Batch column and credits batches such as A-09-12.</span>
+        <input id="sourceFile" type="file" accept=".xlsx,.xls" />
       </label>
-
       <div id="sourceControls" class="controls hidden">
-        <label>
-          Report sheet
-          <select id="sourceSheet"></select>
-        </label>
-
-        <label>
-          Created-count / Batch column
-          <select id="batchColumn"></select>
-        </label>
+        <label>Report sheet<select id="sourceSheet"></select></label>
+        <label>Created-count / Batch column<select id="batchColumn"></select></label>
       </div>
-
-      <div id="sourceStatus" class="status">
-        Waiting for file
-      </div>
+      <div id="sourceStatus" class="status">Waiting for file</div>
     </section>
 
-    <!-- RESULTS -->
     <section id="resultsSection" class="card hidden">
       <div class="section-heading">
-        <div>
-          <span class="step">2</span>
-          <h2>Review Production</h2>
-        </div>
-
-        <span
-          id="recordSummary"
-          class="status success"
-        ></span>
+        <div><span class="step">2</span><h2>Review Production</h2></div>
+        <span id="recordSummary" class="status success"></span>
       </div>
-
       <div id="kpiStrip" class="kpi-strip"></div>
-
       <h3>Production Team</h3>
-
-      <div
-        id="productionCards"
-        class="summary-grid"
-      ></div>
-
-      <details
-        id="reviewDetails"
-        class="unassigned hidden"
-      >
-        <summary>
-          <span id="reviewCount">0</span>
-          rows were not credited
-        </summary>
-
-        <div
-          id="reviewList"
-          class="unassigned-list"
-        ></div>
+      <div id="productionCards" class="summary-grid"></div>
+      <details id="reviewDetails" class="unassigned hidden">
+        <summary><span id="reviewCount">0</span> rows were not credited</summary>
+        <div id="reviewList" class="unassigned-list"></div>
       </details>
-
       <div class="action-row">
-        <button
-          id="saveSnapshotBtn"
-          class="primary"
-          type="button"
-        >
-          Save Current Results
-        </button>
-
-        <button
-          id="downloadSummaryBtn"
-          class="secondary"
-          type="button"
-        >
-          Download Excel Summary
-        </button>
+        <button id="saveSnapshotBtn" class="primary" type="button">Save Current Results</button>
+        <button id="downloadSummaryBtn" class="secondary" type="button">Download Excel Summary</button>
       </div>
-
-      <div
-        id="saveMessage"
-        class="message hidden"
-        role="status"
-      ></div>
+      <div id="saveMessage" class="message hidden" role="status"></div>
     </section>
 
-    <!-- HISTORY -->
     <section class="card">
       <div class="section-heading">
-        <div>
-          <span class="step">3</span>
-          <h2>Saved Results</h2>
-        </div>
-
-        <span class="status">
-          Saved on this device
-        </span>
+        <div><span class="step">3</span><h2>Saved Results</h2></div>
+        <span class="status">Saved on this device</span>
       </div>
-
       <div class="table-wrap">
         <table class="history-table">
-          <thead>
-            <tr>
-              <th>Saved</th>
-              <th>Team Counts</th>
-              <th>Uncredited</th>
-              <th>Delete</th>
-            </tr>
-          </thead>
-
+          <thead><tr><th>Saved</th><th>Team Counts</th><th>Uncredited</th><th>Delete</th></tr></thead>
           <tbody id="historyBody"></tbody>
         </table>
       </div>
-
-      <p class="privacy-note">
-        Saved results stay in this browser's local storage.
-      </p>
+      <p class="privacy-note">Saved results stay in this browser's local storage.</p>
     </section>
 
-    <!-- ASSIGNMENTS -->
     <section class="card assignments">
       <h2>Aisle Assignments</h2>
-
-      <div
-        id="assignmentGrid"
-        class="assignment-grid"
-      ></div>
+      <div id="assignmentGrid" class="assignment-grid"></div>
     </section>
-
   </main>
 
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-
-  <!-- Only load app.js. Do not load branchManager.js. -->
   <script src="app.js"></script>
+  <script src="attendance.js"></script>
 </body>
 </html>

@@ -50,7 +50,7 @@
           <thead>
             <tr>
               <th>Employee Name</th>
-              <th>Assigned Aisles</th>
+              <th>Assigned Aisles / Date</th>
               <th>Daily Status</th>
               <th>Edit</th>
               <th>Delete</th>
@@ -66,8 +66,8 @@
       <form id="teamMemberForm" class="modal-form">
         <h3 id="teamMemberModalTitle">Team Member</h3>
         <label><span>Employee Name *</span><input id="employeeNameInput" type="text" autocomplete="off" required /></label>
-        <label><span>Starting Aisle *</span><input id="startAisleInput" type="text" maxlength="1" autocomplete="off" required /></label>
-        <label><span>Ending Aisle *</span><input id="endAisleInput" type="text" maxlength="1" autocomplete="off" required /></label>
+        <label><span>Starting Aisle *</span><input id="startAisleInput" type="text" maxlength="30" autocomplete="off" required /></label>
+        <label><span>Ending Aisle *</span><input id="endAisleInput" type="text" maxlength="30" autocomplete="off" required /></label>
         <div class="modal-actions">
           <button type="submit" class="primary">Save</button>
           <button type="button" class="secondary" id="teamMemberCancel">Cancel</button>
@@ -98,7 +98,7 @@
       </fieldset>
       <label class="file-drop" for="sourceFile">
         <strong>Choose Cycle Count Detail file</strong>
-        <span id="expectedFilename" class="file-hint">The app uses the Batch column and credits batches such as A-09-12.</span>
+        <span id="expectedFilename" class="file-hint">The app uses the Batch column and credits batches such as A-09-12, AA-09-12, or A1-09-12.</span>
         <input id="sourceFile" type="file" accept=".xlsx,.xls" />
       </label>
       <div id="sourceControls" class="controls hidden">
@@ -150,5 +150,6 @@
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script src="app.js"></script>
   <script src="attendance.js"></script>
+  <script src="assignmentFilters.js"></script>
 </body>
 </html>

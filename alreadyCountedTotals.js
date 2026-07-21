@@ -2,8 +2,8 @@
 
 /*
  * Production-total presentation and employee matching for Already Cycle Counted.
- * The initials filter only changes the preview; all matched employee credits remain
- * included in production totals.
+ * The initials filter changes only the preview. All matched credits, including
+ * initials that are not assigned to an employee, remain in the team total.
  */
 
 function acEmployeeForInitials(initials) {
@@ -11,6 +11,64 @@ function acEmployeeForInitials(initials) {
   return getAssignments().find(
     (assignment) => acGetInitials(assignment) === normalized
   ) || null;
+}
+
+function acGetUnassignedInitialsTotals() {
+  return Object.entries(alreadyCountedState.totalsByInitials)
+    .filter(([initials]) => !acEmployeeForInitials(initials))
+    .map(([initials, total]) => ({
+      initials,
+      total: Number(total) || 0,
+    }));
+}
+
+function acGetUnassignedBatchTotal() {
+  return acGetUnassignedInitialsTotals().reduce(
+    (sum, entry) => sum + entry.total,
+    0
+  );
+}
+
+function acRenderUnassignedProductionCard() {
+  const cards = $("productionCards");
+  if (!cards) return;
+
+  cards.querySelector("[data-unassigned-batches-card]")?.remove();
+
+  const unassignedRows = acGetUnassignedInitialsTotals();
+  const unassignedTotal = acGetUnassignedBatchTotal();
+  if (unassignedTotal <= 0) return;
+
+  const initialsBreakdown = unassignedRows
+    .map((entry) => `${entry.initials.toUpperCase()}: ${entry.total}`)
+    .join(" • ");
+
+  const card = document.createElement("article");
+  card.className = "summary-card";
+  card.dataset.unassignedBatchesCard = "true";
+  card.innerHTML = `
+    <div class="summary-card-top">
+      <div>
+        <strong>Unassigned Batches</strong>
+        <span>${escapeHtml(initialsBreakdown)}</span>
+      </div>
+      <b>${unassignedTotal}</b>
+    </div>
+    <div class="percent-row">
+      <span>Included in team production</span>
+      <small>Assign initials later</small>
+    </div>
+  `;
+  cards.appendChild(card);
+
+  const summary = $("recordSummary");
+  if (summary) {
+    const assignedTotal = Object.values(state.employeeTotals).reduce(
+      (sum, value) => sum + (Number(value) || 0),
+      0
+    );
+    summary.textContent = `${assignedTotal + unassignedTotal} total production • ${unassignedTotal} unassigned`;
+  }
 }
 
 acApplyCreditsToProduction = function applyAllAlreadyCountedCredits() {
@@ -36,7 +94,10 @@ acApplyCreditsToProduction = function applyAllAlreadyCountedCredits() {
     assignment.__alreadyCountedApplied = nextExtra;
   });
 
-  if (state.workbook) renderResults();
+  if (state.workbook) {
+    renderResults();
+    acRenderUnassignedProductionCard();
+  }
 };
 
 acRenderPreview = function renderAlreadyCountedWithEmployeeTotals() {
@@ -74,11 +135,8 @@ acRenderPreview = function renderAlreadyCountedWithEmployeeTotals() {
     };
   });
 
-  const unassignedInitials = Object.entries(
-    alreadyCountedState.totalsByInitials
-  )
-    .filter(([initials]) => !acEmployeeForInitials(initials))
-    .map(([initials, total]) => ({ initials, total }));
+  const unassignedInitials = acGetUnassignedInitialsTotals();
+  const unassignedTotal = acGetUnassignedBatchTotal();
 
   preview.classList.remove("hidden");
   preview.innerHTML = `
@@ -86,7 +144,7 @@ acRenderPreview = function renderAlreadyCountedWithEmployeeTotals() {
       <div><span>Matched items</span><strong>${rows.length}</strong></div>
       <div><span>Unique locations</span><strong>${filteredLocations}</strong></div>
       <div><span>Unmatched items</span><strong>${alreadyCountedState.unmatchedRows.length}</strong></div>
-      <div><span>Duplicates removed</span><strong>${alreadyCountedState.duplicateCount}</strong></div>
+      <div><span>Unassigned batches</span><strong>${unassignedTotal}</strong></div>
     </div>
 
     <div class="table-wrap already-counted-table-wrap">
@@ -99,7 +157,7 @@ acRenderPreview = function renderAlreadyCountedWithEmployeeTotals() {
             const employee = acEmployeeForInitials(row.initials);
             return `
               <tr>
-                <td>${escapeHtml(employee?.name || "Not assigned")}</td>
+                <td>${escapeHtml(employee?.name || "Unassigned Batches")}</td>
                 <td>${escapeHtml(row.initials.toUpperCase())}</td>
                 <td>${escapeHtml(row.itemNumber)}</td>
                 <td>${row.locationCount}</td>
@@ -115,7 +173,7 @@ acRenderPreview = function renderAlreadyCountedWithEmployeeTotals() {
       <div class="section-heading">
         <div>
           <h3>Already Counted Added to Production</h3>
-          <small>Initials are matched to the employee name, and these locations are included in the production total.</small>
+          <small>Assigned initials go to the employee. Unassigned initials remain in the team total as Unassigned Batches.</small>
         </div>
       </div>
       <div class="table-wrap">
@@ -139,16 +197,27 @@ acRenderPreview = function renderAlreadyCountedWithEmployeeTotals() {
                 <td><strong>${employee.productionTotal}</strong></td>
               </tr>
             `).join("")}
+            ${unassignedTotal > 0 ? `
+              <tr>
+                <td><strong>Unassigned Batches</strong></td>
+                <td>${escapeHtml(unassignedInitials.map((entry) => entry.initials.toUpperCase()).join(", "))}</td>
+                <td>0</td>
+                <td><strong>+${unassignedTotal}</strong></td>
+                <td><strong>${unassignedTotal}</strong></td>
+              </tr>
+            ` : ""}
           </tbody>
         </table>
       </div>
       ${unassignedInitials.length ? `
-        <div class="message error">
-          These initials have location credit but are not matched to an employee:
-          ${unassignedInitials.map((entry) => `${escapeHtml(entry.initials.toUpperCase())} (${entry.total})`).join(", ")}.
-          Enter those initials beside the correct employee above.
+        <div class="message">
+          Unassigned batches are included in team production: ${unassignedInitials
+            .map((entry) => `${escapeHtml(entry.initials.toUpperCase())} (${entry.total})`)
+            .join(", ")}. Add those initials to an employee later to move the credit to that person without changing the team total.
         </div>
       ` : ""}
     </section>
   `;
+
+  acRenderUnassignedProductionCard();
 };

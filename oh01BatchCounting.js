@@ -2,8 +2,9 @@
 
 /*
  * Treat every real detail-row batch beginning with OH01 as production.
- * These rows are assigned to the production person named "Batches" unless
- * another employee-specific rule has already identified the count.
+ * Already Cycle Counted matches redistribute those OH01 rows to named
+ * employees, Variance Reports, or Batches. Only unmatched OH01 rows remain
+ * as additional Batches, preventing the same count from being added twice.
  */
 
 function oh01IsBatch(value) {
@@ -24,25 +25,35 @@ function oh01DetailRowTotal() {
   }, 0);
 }
 
-const oh01OriginalBatchesTotal = pcBatchesTotal;
+function oh01MatchedLocationTotal() {
+  return (alreadyCountedState.matchedRows || []).reduce(
+    (sum, row) => sum + (Number(row.locationCount) || 0),
+    0
+  );
+}
+
+function oh01UnmatchedRowTotal() {
+  return Math.max(0, oh01DetailRowTotal() - oh01MatchedLocationTotal());
+}
+
 const oh01OriginalRemoveMetadataWarnings = rrRemoveMetadataWarnings;
 
-pcBatchesTotal = function batchesIncludingOh01() {
+pcBatchesTotal = function correctedBatchesTotal() {
   const officialTotal = rrGetOfficialReportTotal();
   const namedTotal = pcNamedEmployeeTotal();
   const varianceTotal = pcVarianceTotal();
   const explicitInitialsTotal = pcExplicitBatchTotal();
-  const oh01Total = oh01DetailRowTotal();
-  const directlyIdentifiedBatches = explicitInitialsTotal + oh01Total;
+  const unmatchedOh01Total = oh01UnmatchedRowTotal();
+  const directBatchesTotal = explicitInitialsTotal + unmatchedOh01Total;
 
   if (officialTotal > 0) {
     return Math.max(
-      directlyIdentifiedBatches,
+      directBatchesTotal,
       officialTotal - namedTotal - varianceTotal
     );
   }
 
-  return Math.max(directlyIdentifiedBatches, oh01OriginalBatchesTotal());
+  return directBatchesTotal;
 };
 
 rrGetBatchesTotal = pcBatchesTotal;
@@ -56,21 +67,20 @@ rrRemoveMetadataWarnings = function keepOh01AsCountedBatches() {
 };
 
 const oh01OriginalRenderCards = acRenderUnassignedProductionCard;
-acRenderUnassignedProductionCard = function renderOh01AwareCards() {
+acRenderUnassignedProductionCard = function renderCorrectedOh01Cards() {
   oh01OriginalRenderCards();
 
   const card = $("productionCards")?.querySelector(
     "[data-unassigned-batches-card]"
   );
-  const oh01Total = oh01DetailRowTotal();
+  if (!card) return;
 
-  if (card && oh01Total > 0) {
-    const description = card.querySelector(".summary-card-top span");
-    if (description) {
-      const existing = description.textContent.trim();
-      description.textContent = existing
-        ? `${existing} • OH01 rows: ${oh01Total}`
-        : `OH01 rows: ${oh01Total}`;
-    }
+  const description = card.querySelector(".summary-card-top span");
+  if (description) {
+    const explicitInitialsTotal = pcExplicitBatchTotal();
+    const unmatchedOh01Total = oh01UnmatchedRowTotal();
+    description.textContent =
+      `Unassigned initials: ${explicitInitialsTotal} • ` +
+      `Unmatched OH01 rows: ${unmatchedOh01Total}`;
   }
 };

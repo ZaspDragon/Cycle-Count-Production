@@ -5,9 +5,10 @@
  *
  * - A row counts as an OH01 batch only when its Batch value begins with OH01.
  * - A row whose Batch value is exactly "Batch" is a label/header and never counts.
- * - Already Cycle Counted matches redistribute OH01 production to employees or
- *   Variance Reports. Batches receives only the remaining OH01 production needed
- *   to reconcile the official report total.
+ * - Already Cycle Counted matches redistribute OH01 production to employees,
+ *   Variance Reports, or Batches.
+ * - Unassigned initials are still real OH01 production and belong to Batches.
+ * - Only unmatched OH01 rows are added beyond those unassigned-initial credits.
  */
 
 function oh01IsBatch(value) {
@@ -42,20 +43,23 @@ function oh01UnmatchedRowTotal() {
 
 const oh01OriginalRemoveMetadataWarnings = rrRemoveMetadataWarnings;
 
-pcBatchesTotal = function oh01OnlyBatchesTotal() {
+pcBatchesTotal = function correctedOh01BatchesTotal() {
   const officialTotal = rrGetOfficialReportTotal();
   const namedTotal = pcNamedEmployeeTotal();
   const varianceTotal = pcVarianceTotal();
+  const unassignedInitialsTotal = pcExplicitBatchTotal();
   const unmatchedOh01Total = oh01UnmatchedRowTotal();
+  const directlyIdentifiedBatches =
+    unassignedInitialsTotal + unmatchedOh01Total;
 
   if (officialTotal > 0) {
     return Math.max(
-      unmatchedOh01Total,
+      directlyIdentifiedBatches,
       officialTotal - namedTotal - varianceTotal
     );
   }
 
-  return unmatchedOh01Total;
+  return directlyIdentifiedBatches;
 };
 
 rrGetBatchesTotal = pcBatchesTotal;
@@ -71,7 +75,7 @@ rrRemoveMetadataWarnings = function keepOnlyRealOh01Rows() {
 };
 
 const oh01OriginalRenderCards = acRenderUnassignedProductionCard;
-acRenderUnassignedProductionCard = function renderOh01OnlyBatchesCard() {
+acRenderUnassignedProductionCard = function renderCorrectedOh01BatchesCard() {
   oh01OriginalRenderCards();
 
   const card = $("productionCards")?.querySelector(
@@ -82,6 +86,7 @@ acRenderUnassignedProductionCard = function renderOh01OnlyBatchesCard() {
   const description = card.querySelector(".summary-card-top span");
   if (description) {
     description.textContent =
-      `OH01 production not credited to a named employee: ${pcBatchesTotal()}`;
+      `Unassigned OH01 initials: ${pcExplicitBatchTotal()} • ` +
+      `Unmatched OH01 rows: ${oh01UnmatchedRowTotal()}`;
   }
 };

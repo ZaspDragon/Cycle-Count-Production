@@ -115,7 +115,7 @@
           <span class="step">2</span>
           <div>
             <h2>Already Cycle Counted</h2>
-            <small>Match item numbers and initials to the unique locations in Cycle Count Detail for the report's weekday only.</small>
+            <small>Match item numbers and initials to the unique locations in Cycle Count Detail.</small>
           </div>
         </div>
         <span id="alreadyCountedStatus" class="status">Waiting for both files</span>
@@ -129,7 +129,7 @@
         <button id="saveSharePointLinkBtn" class="secondary" type="button">Save Link</button>
         <button id="openSharePointLinkBtn" class="secondary" type="button">Open SharePoint</button>
       </div>
-      <p class="privacy-note">Because the workbook is private, open it through Microsoft 365, download it, then upload it below. The app automatically reads only the weekday tab matching the Cycle Count Detail report date.</p>
+      <p class="privacy-note">Because the workbook is private, open it through Microsoft 365, download it, then upload it below. The saved link gives you one-click access without exposing company credentials.</p>
 
       <label class="file-drop" for="alreadyCountedFile">
         <strong>Choose Already Cycle Counted file</strong>
@@ -197,6 +197,7 @@
   <script src="alreadyCounted.js"></script>
   <script src="alreadyCountedDayFilter.js"></script>
   <script src="alreadyCountedTotals.js"></script>
+  <script src="reportReconciliation.js"></script>
   <script src="attendance.js"></script>
   <script src="assignmentFilters.js"></script>
   <script src="aisleHierarchy.js"></script>

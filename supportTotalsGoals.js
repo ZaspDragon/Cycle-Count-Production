@@ -58,30 +58,74 @@
     return attendance?.status === "absent";
   }
 
+  function varianceReportsTotal() {
+    return typeof pcVarianceTotal === "function"
+      ? Number(pcVarianceTotal()) || 0
+      : Number(state.employeeTotals?.["Variance Reports"] || 0);
+  }
+
+  function batchesTotal() {
+    return typeof pcBatchesTotal === "function"
+      ? Number(pcBatchesTotal()) || 0
+      : Number(state.employeeTotals?.Batches || 0);
+  }
+
+  function ensureSupportCards() {
+    if (typeof acRenderUnassignedProductionCard === "function") {
+      acRenderUnassignedProductionCard();
+    }
+  }
+
+  function styleSupportCard(card, label, total, description) {
+    if (!card) return;
+    card.dataset.supportTotal = "true";
+
+    const name = card.querySelector("strong");
+    if (name) name.textContent = label;
+
+    const totalElement = card.querySelector(".summary-card-top b");
+    if (totalElement) totalElement.textContent = String(total);
+
+    const breakdown = card.querySelector(".summary-card-top span");
+    if (breakdown) breakdown.textContent = description;
+
+    const meter = card.querySelector(".meter");
+    if (meter) meter.remove();
+
+    let percentRow = card.querySelector(".percent-row");
+    if (!percentRow) {
+      percentRow = document.createElement("div");
+      percentRow.className = "percent-row";
+      card.appendChild(percentRow);
+    }
+    percentRow.innerHTML = `
+      <span>Support total</span>
+      <small>${total} added to overall completion • no 200-count goal</small>
+    `;
+  }
+
   function applySupportGoalDisplay() {
     if (!state.workbook) return;
 
+    ensureSupportCards();
+
     const assignments = getAssignments();
     const assignmentByName = new Map(
-      assignments.map((assignment) => [assignment.name, assignment])
+      assignments.map((assignment) => [normalizeName(assignment.name), assignment])
     );
 
     let requiredGoal = 0;
     let productiveEmployeeCounts = 0;
-    let supportCounts = 0;
 
     assignments.forEach((assignment) => {
-      const total = Number(state.employeeTotals[assignment.name] || 0);
-      if (isSupportAssignment(assignment)) {
-        supportCounts += total;
-        assignment.dailyGoal = 0;
-        return;
-      }
       if (!isGoalAssignment(assignment) || isAbsent(assignment)) return;
       requiredGoal += goalFor(assignment);
-      productiveEmployeeCounts += total;
+      productiveEmployeeCounts += Number(state.employeeTotals[assignment.name] || 0);
     });
 
+    const varianceTotal = varianceReportsTotal();
+    const batchTotal = batchesTotal();
+    const supportCounts = varianceTotal + batchTotal;
     const overallCompleted = productiveEmployeeCounts + supportCounts;
     const overallPercent = requiredGoal > 0
       ? ((overallCompleted / requiredGoal) * 100).toFixed(1)
@@ -89,27 +133,28 @@
 
     document.querySelectorAll("#productionCards .summary-card").forEach((card) => {
       const name = card.querySelector("strong")?.textContent?.trim();
-      const assignment = assignmentByName.get(name);
+      const assignment = assignmentByName.get(normalizeName(name));
       if (!assignment || !isSupportAssignment(assignment)) return;
-
-      card.dataset.supportTotal = "true";
-      const total = Number(state.employeeTotals[assignment.name] || 0);
-      const meter = card.querySelector(".meter");
-      if (meter) meter.style.display = "none";
-
-      const percentRow = card.querySelector(".percent-row");
-      if (percentRow) {
-        percentRow.innerHTML = `
-          <span>Support total</span>
-          <small>${total} added to overall completion • no 200-count goal</small>
-        `;
-      }
-
-      const breakdown = card.querySelector(".summary-card-top span");
-      if (breakdown) {
-        breakdown.textContent = "Counts toward overall cycle-count completion only";
-      }
+      styleSupportCard(
+        card,
+        assignment.name,
+        Number(state.employeeTotals[assignment.name] || 0),
+        "Counts toward overall cycle-count completion only"
+      );
     });
+
+    styleSupportCard(
+      document.querySelector("#productionCards [data-unassigned-batches-card]"),
+      "Batches",
+      batchTotal,
+      "Unassigned batch counts included in the completed total"
+    );
+    styleSupportCard(
+      document.querySelector("#productionCards [data-variance-reports-card]"),
+      "Variance Reports",
+      varianceTotal,
+      "DW variance-report counts included in the completed total"
+    );
 
     const kpis = Array.from(document.querySelectorAll("#kpiStrip .kpi"));
     if (kpis[0]) {
@@ -135,7 +180,7 @@
     if (summary) {
       summary.textContent =
         `${overallCompleted} completed toward ${requiredGoal} required` +
-        ` • ${supportCounts} support counts (Batches/Variance Reports)`;
+        ` • ${batchTotal} Batches • ${varianceTotal} Variance Reports`;
     }
   }
 
@@ -172,24 +217,16 @@
         ? sum
         : sum + goalFor(assignment);
     }, 0);
-    const supportCounts = assignments.reduce(
-      (sum, assignment) =>
-        sum + (isSupportAssignment(assignment)
-          ? Number(state.employeeTotals[assignment.name] || 0)
-          : 0),
-      0
-    );
     return {
       ...record,
       dailyTeamGoal: requiredGoal,
-      supportCounts,
-      goalExcludedAssignments: assignments
-        .filter(isSupportAssignment)
-        .map((assignment) => assignment.name),
+      supportCounts: batchesTotal() + varianceReportsTotal(),
+      batchesTotal: batchesTotal(),
+      varianceReportsTotal: varianceReportsTotal(),
+      goalExcludedAssignments: ["Batches", "Variance Reports"],
     };
   };
 
-  // Normalize existing saved support assignments without deleting any counts.
   getAssignments().forEach((assignment) => {
     if (isSupportAssignment(assignment)) assignment.dailyGoal = 0;
   });

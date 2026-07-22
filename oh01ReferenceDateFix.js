@@ -1,11 +1,9 @@
 "use strict";
 
 /*
- * Count "Already Cycle Counted Numbers" by the date embedded in OH01 batch
- * names such as OH01 7/22, OH01 7/22-1, OH01 7/22-2, etc.
- *
- * This supplements the normal Count Date column logic so the reference total
- * still works when the uploaded report stores the day only in the Batch field.
+ * Count "Already Cycle Counted Numbers" by the month/day embedded in OH01
+ * batch names. The month is not fixed: values from 1/1 through 12/31 are
+ * supported, including numbered batch suffixes such as OH01 11/6-3.
  */
 (() => {
   const REFERENCE_NAME = "already cycle counted numbers";
@@ -53,21 +51,33 @@
     ]);
   }
 
+  function isValidMonthDay(year, month, day) {
+    if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+    const date = new Date(year, month - 1, day);
+    return (
+      date.getFullYear() === year &&
+      date.getMonth() + 1 === month &&
+      date.getDate() === day
+    );
+  }
+
   function extractOh01BatchDate(value, fallbackYear) {
     const text = String(value || "").trim().toUpperCase();
 
-    // Accepted examples:
-    // OH01 7/22
-    // OH01 7/22-1
+    // Accepted for every month:
+    // OH01 1/5
+    // OH01 2/14-1
     // OH01 07/22-12
-    // OH01-7/22-2
-    // OH01_7/22
-    const match = text.match(/^OH01(?:\s|_|-)+(\d{1,2})\/(\d{1,2})(?:-\d+)?(?:\s.*)?$/i);
+    // OH01-10/3-2
+    // OH01_12/31
+    const match = text.match(
+      /^OH01(?:\s|_|-)+(\d{1,2})\s*\/\s*(\d{1,2})(?:-\d+)?(?:\s.*)?$/i
+    );
     if (!match) return null;
 
     const month = Number(match[1]);
     const day = Number(match[2]);
-    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    if (!isValidMonthDay(fallbackYear, month, day)) return null;
 
     return { year: fallbackYear, month, day };
   }
@@ -99,8 +109,6 @@
       return count + (sameCalendarDay(batchDate, wantedDate) ? 1 : 0);
     }, 0);
 
-    // When OH01 date batches are present, they are the authoritative total for
-    // this special reference row. A zero remains valid for a day with no rows.
     state.employeeTotals[reference.name] = total;
   }
 

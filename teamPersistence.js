@@ -1,14 +1,14 @@
 "use strict";
 
-/*
- * Reliable browser persistence for branch rosters.
- * Keeps a second backup of team/branch data and saves after every add, edit,
- * delete, branch change, page hide, and page close.
- */
+/* Reliable browser persistence for branch rosters and team changes. */
 (() => {
   const PRIMARY_KEY = "cycleCountProduction.branches.v1";
   const BACKUP_KEY = "cycleCountProduction.branches.backup.v1";
   const SELECTED_KEY = "cycleCountProduction.currentBranch.v1";
+
+  // Maintain compatibility with the branch modal title expected by app.js.
+  const branchTitle = document.getElementById("branchMemberModalTitle");
+  if (branchTitle) branchTitle.id = "branchModalTitle";
 
   function validBranches(value) {
     return Array.isArray(value) && value.length > 0;
@@ -48,13 +48,11 @@
     }
   }
 
-  // Recover from the backup only when the primary roster is unavailable.
   const primaryRoster = parseSaved(PRIMARY_KEY);
   const backupRoster = parseSaved(BACKUP_KEY);
+
   if (!primaryRoster && backupRoster) {
-    state.branches = backupRoster
-      .map(normalizeBranch)
-      .filter(Boolean);
+    state.branches = backupRoster.map(normalizeBranch).filter(Boolean);
 
     const savedSelected = localStorage.getItem(SELECTED_KEY);
     state.selectedBranchId = state.branches.some(
@@ -64,8 +62,10 @@
       : state.branches[0]?.id || null;
 
     persistRoster();
+    renderBranchDropdown();
+    renderAssignments();
+    renderAssignmentGrid();
   } else if (primaryRoster) {
-    // Seed or refresh the backup with the currently loaded roster.
     persistRoster();
   }
 
@@ -82,9 +82,7 @@
 
     window[functionName] = function persistAfterRosterMutation(...args) {
       const result = original.apply(this, args);
-      if (result?.success) {
-        persistRoster();
-      }
+      if (result?.success) persistRoster();
       return result;
     };
   }
@@ -103,7 +101,5 @@
   });
   window.addEventListener("pagehide", persistRoster);
   window.addEventListener("beforeunload", persistRoster);
-
-  // Save once after all scripts have initialized and branch defaults are added.
   window.setTimeout(persistRoster, 0);
 })();

@@ -1,18 +1,17 @@
 "use strict";
 
 /*
- * Permanent daily reconciliation.
- * Reads the uploaded report's own Total Cycle Counts value every day and makes:
- * named employees + Variance Reports + Batches = official report total.
- * Nothing here is tied to a date or a hard-coded total.
+ * Final daily reconciliation and ownership loaders.
+ * The uploaded report total remains the source of truth, while ownership is
+ * recalculated by ownershipPriorityFix.js after Already Counted matching.
  */
 (() => {
   if (window.__dailyReportReconciliationInstalled) return;
   window.__dailyReportReconciliationInstalled = true;
 
-  const numberValue = (value) => {
-    const n = Number(String(value ?? "").replace(/[$,]/g, "").trim());
-    return Number.isFinite(n) ? n : 0;
+  const numeric = (value) => {
+    const number = Number(String(value ?? "").replace(/[$,]/g, "").trim());
+    return Number.isFinite(number) ? number : 0;
   };
 
   function officialReportTotal() {
@@ -21,25 +20,20 @@
 
     state.workbook.SheetNames.forEach((sheetName) => {
       const matrix = workbookMatrix(state.workbook, sheetName);
-
       matrix.forEach((row, rowIndex) => {
         const labels = row.map((cell) => normalizeText(cell));
-        const totalCycleColumn = labels.findIndex((label) =>
-          label.includes("total cycle count")
-        );
+        const totalCycleColumn = labels.findIndex((label) => label.includes("total cycle count"));
         if (totalCycleColumn >= 0) {
-          for (let i = rowIndex + 1; i < Math.min(matrix.length, rowIndex + 30); i += 1) {
-            const nextRow = matrix[i] || [];
-            const isTotal = nextRow.some((cell) => normalizeText(cell) === "total");
-            if (!isTotal) continue;
-            const value = numberValue(nextRow[totalCycleColumn]);
+          for (let index = rowIndex + 1; index < matrix.length; index += 1) {
+            const nextRow = matrix[index] || [];
+            if (!nextRow.some((cell) => normalizeText(cell) === "total")) continue;
+            const value = numeric(nextRow[totalCycleColumn]);
             if (value > 0) candidates.push(value);
           }
         }
-
         if (labels.some((label) => label === "total")) {
           row.forEach((cell) => {
-            const value = numberValue(cell);
+            const value = numeric(cell);
             if (value > 0 && value <= 100000) candidates.push(value);
           });
         }
@@ -49,77 +43,59 @@
     return candidates.length ? Math.round(Math.max(...candidates)) : 0;
   }
 
-  function varianceTotal() {
-    return typeof pcVarianceTotal === "function"
-      ? Number(pcVarianceTotal()) || 0
-      : 0;
-  }
-
   function namedTotal() {
     return getAssignments().reduce((sum, assignment) => {
-      const name = String(assignment?.name || "").trim().toLowerCase();
-      if (["batches", "batch", "variance reports", "variance report"].includes(name)) {
-        return sum;
-      }
+      if (/^(batches?|variance reports?)$/i.test(String(assignment?.name || "").trim())) return sum;
       return sum + (Number(state.employeeTotals?.[assignment.name]) || 0);
     }, 0);
   }
 
+  function varianceTotal() {
+    return typeof pcVarianceTotal === "function" ? Number(pcVarianceTotal()) || 0 : 0;
+  }
+
   function batchesTotal() {
-    const official = officialReportTotal();
-    if (!official) {
-      return typeof pcBatchesTotal === "function" ? Number(pcBatchesTotal()) || 0 : 0;
+    if (Number.isFinite(Number(state.ownershipPriorityBatches))) {
+      return Number(state.ownershipPriorityBatches) || 0;
     }
-    return Math.max(0, official - namedTotal() - varianceTotal());
+    const official = officialReportTotal();
+    return official > 0 ? Math.max(0, official - namedTotal() - varianceTotal()) : 0;
   }
 
   function ensureBatchesCard(total) {
     const cards = $("productionCards");
     if (!cards) return;
-
     let card = cards.querySelector("[data-unassigned-batches-card]");
     if (total <= 0) {
       card?.remove();
       return;
     }
-
     if (!card) {
       card = document.createElement("article");
       card.className = "summary-card";
       card.dataset.unassignedBatchesCard = "true";
       cards.appendChild(card);
     }
-
     card.innerHTML = `
       <div class="summary-card-top">
-        <div>
-          <strong>Batches</strong>
-          <span>Official report remainder not assigned to a named employee</span>
-        </div>
+        <div><strong>Batches</strong><span>Counts with no confirmed initials or aisle owner</span></div>
         <b>${total}</b>
       </div>
-      <div class="percent-row">
-        <span>Support total</span>
-        <small>${total} added to overall completion • no individual goal</small>
-      </div>
+      <div class="percent-row"><span>Needs review</span><small>Included once in the report total</small></div>
     `;
   }
 
-  function applyDailyReconciliation() {
+  function reconcile() {
     if (!state.workbook) return;
-
     const official = officialReportTotal();
     if (!official) return;
-
-    const named = namedTotal();
     const variance = varianceTotal();
-    const batches = Math.max(0, official - named - variance);
+    const batches = batchesTotal();
 
     window.rrGetOfficialReportTotal = officialReportTotal;
     window.rrGetNamedEmployeeTotal = namedTotal;
     window.rrGetBatchesTotal = batchesTotal;
     window.acGetUnassignedBatchTotal = batchesTotal;
-    window.pcBatchesTotal = batchesTotal;
 
     ensureBatchesCard(batches);
 
@@ -131,74 +107,60 @@
       if (value) value.textContent = String(official);
     }
 
-    const requiredGoal = Number(kpis[2]?.querySelector("strong")?.textContent) || 0;
+    const requiredGoal = numeric(kpis[2]?.querySelector("strong")?.textContent);
     if (kpis[3]) {
       const value = kpis[3].querySelector("strong");
-      if (value) {
-        value.textContent = requiredGoal > 0
-          ? `${((official / requiredGoal) * 100).toFixed(1)}%`
-          : "0.0%";
-      }
+      if (value) value.textContent = requiredGoal > 0
+        ? `${((official / requiredGoal) * 100).toFixed(1)}%`
+        : "0.0%";
     }
 
     const summary = $("recordSummary");
     if (summary) {
-      summary.textContent =
-        `${official} total production • ${variance} Variance Reports • ${batches} Batches`;
+      summary.textContent = `${official} total production • ${variance} Variance Reports • ${batches} Batches`;
     }
 
     state.dailyOfficialReportTotal = official;
     state.dailyBatchesTotal = batches;
   }
 
-  const runSoon = () => {
-    window.setTimeout(applyDailyReconciliation, 0);
-    window.setTimeout(applyDailyReconciliation, 150);
-    window.setTimeout(applyDailyReconciliation, 600);
-  };
-
-  ["sourceFile", "alreadyCountedFile", "matchAlreadyCountedBtn", "branchSelect"].forEach((id) => {
-    $(id)?.addEventListener(id === "matchAlreadyCountedBtn" ? "click" : "change", runSoon);
-  });
-
   const previousRenderResults = renderResults;
-  renderResults = function renderResultsWithDailyReconciliation() {
+  renderResults = function renderResultsWithFinalReconciliation() {
     previousRenderResults();
-    applyDailyReconciliation();
+    window.setTimeout(reconcile, 0);
   };
-})();
 
-/* Add a visible ownership-review table and load its assignment logic last. */
-(() => {
-  if (!document.getElementById("unassignedCountReviewSection")) {
-    const results = document.getElementById("resultsSection");
-    if (results) {
-      results.insertAdjacentHTML("afterend", `
-        <section id="unassignedCountReviewSection" class="card hidden">
-          <div class="section-heading">
-            <div>
-              <h2>Unassigned Count Review</h2>
-              <small>Assign unmatched count rows to the employee who completed them. Saved by branch and report date.</small>
-            </div>
-            <span id="unassignedCountReviewSummary" class="status"></span>
-          </div>
-          <div class="table-wrap">
-            <table class="history-table">
-              <thead>
-                <tr><th>Item</th><th>Bin</th><th>Batch</th><th>Counts</th><th>Count Date</th><th>Assign To</th></tr>
-              </thead>
-              <tbody id="unassignedCountReviewBody"></tbody>
-            </table>
-          </div>
-        </section>
-      `);
-    }
-  }
+  ["sourceFile", "alreadyCountedFile", "branchSelect"].forEach((id) => {
+    $(id)?.addEventListener("change", () => window.setTimeout(reconcile, 500));
+  });
+  $("matchAlreadyCountedBtn")?.addEventListener("click", () => window.setTimeout(reconcile, 500));
 
-  if (!window.__unassignedCountReviewLoader) {
-    window.__unassignedCountReviewLoader = true;
+  function loadOnce(flag, source) {
+    if (window[flag]) return;
+    window[flag] = true;
     const script = document.createElement("script");
-    script.src = `unassignedCountReview.js?v=20260723-1-${Date.now()}`;
+    script.src = `${source}?v=20260723-final-${Date.now()}`;
     document.body.appendChild(script);
   }
+
+  if (!document.getElementById("unassignedCountReviewSection")) {
+    const results = document.getElementById("resultsSection");
+    results?.insertAdjacentHTML("afterend", `
+      <section id="unassignedCountReviewSection" class="card hidden">
+        <div class="section-heading">
+          <div><h2>Unassigned Count Review</h2><small>Only counts without confirmed initials or aisle ownership appear here.</small></div>
+          <span id="unassignedCountReviewSummary" class="status"></span>
+        </div>
+        <div class="table-wrap">
+          <table class="history-table">
+            <thead><tr><th>Item</th><th>Bin</th><th>Batch</th><th>Counts</th><th>Count Date</th><th>Assign To</th></tr></thead>
+            <tbody id="unassignedCountReviewBody"></tbody>
+          </table>
+        </div>
+      </section>
+    `);
+  }
+
+  loadOnce("__unassignedCountReviewLoader", "unassignedCountReview.js");
+  loadOnce("__ownershipPriorityLoader", "ownershipPriorityFix.js");
 })();

@@ -77,3 +77,11 @@
     }
   });
 })();
+
+/* Load the Times Counted fix after every existing production wrapper. */
+(() => {
+  const script = document.createElement("script");
+  script.src = "timesCountedProductionFix.js";
+  script.defer = true;
+  document.body.appendChild(script);
+})();

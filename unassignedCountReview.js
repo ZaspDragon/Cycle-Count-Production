@@ -70,12 +70,61 @@
     return map;
   }
 
+  function aisleCandidates(value) {
+    const text = String(value || "").trim().toUpperCase();
+    if (!text || /^(OH\d+|BATCH|DW)\b/.test(text)) return [];
+
+    const firstToken = text.split(/[-\s_/]+/).find(Boolean) || "";
+    const candidates = [firstToken];
+    const leadingLetters = firstToken.match(/^[A-Z]+/)?.[0];
+    if (leadingLetters && !candidates.includes(leadingLetters)) candidates.push(leadingLetters);
+    if (leadingLetters?.length > 1 && !candidates.includes(leadingLetters[0])) {
+      candidates.push(leadingLetters[0]);
+    }
+    return candidates;
+  }
+
+  function employeeForAisle(aisle) {
+    const normalized = String(aisle || "").trim().toUpperCase();
+    if (!normalized) return "";
+
+    const matches = getAssignments().filter((assignment) => {
+      if (/^(batches?|variance reports?)$/i.test(String(assignment.name || "").trim())) return false;
+      const assigned = typeof expandAisleRange === "function"
+        ? expandAisleRange(assignment.startAisle, assignment.endAisle)
+        : [assignment.startAisle, assignment.endAisle];
+      return assigned.map((value) => String(value || "").trim().toUpperCase()).includes(normalized);
+    });
+
+    return matches.length === 1 ? matches[0].name : "";
+  }
+
+  function automaticEmployee(row) {
+    for (const aisle of aisleCandidates(row.batch)) {
+      const employee = employeeForAisle(aisle);
+      if (employee) return { employee, source: "batch" };
+    }
+    for (const aisle of aisleCandidates(row.bin)) {
+      const employee = employeeForAisle(aisle);
+      if (employee) return { employee, source: "bin" };
+    }
+    return { employee: "", source: "" };
+  }
+
   function buildRows() {
     const itemInitials = initialsByItem();
     const saved = readSaved()[reportKey()] || {};
     reviewState.rows = detailRows()
       .filter((row) => !itemInitials.has(row.itemNumber))
-      .map((row) => ({ ...row, assignedEmployee: saved[row.id] || "" }));
+      .map((row) => {
+        const automatic = automaticEmployee(row);
+        const savedEmployee = saved[row.id] || "";
+        return {
+          ...row,
+          assignedEmployee: savedEmployee || automatic.employee,
+          assignmentSource: savedEmployee ? "manual" : automatic.source,
+        };
+      });
   }
 
   function manualTotals() {
@@ -102,7 +151,9 @@
   function persistAssignments() {
     const all = readSaved();
     all[reportKey()] = Object.fromEntries(
-      reviewState.rows.filter((row) => row.assignedEmployee).map((row) => [row.id, row.assignedEmployee])
+      reviewState.rows
+        .filter((row) => row.assignmentSource === "manual" && row.assignedEmployee)
+        .map((row) => [row.id, row.assignedEmployee])
     );
     writeSaved(all);
   }
@@ -113,17 +164,20 @@
     const summary = $("unassignedCountReviewSummary");
     if (!section || !body || !summary) return;
 
-    const remainingRows = reviewState.rows.filter((row) => !row.assignedEmployee);
-    const remainingCounts = remainingRows.reduce((sum, row) => sum + row.count, 0);
-    summary.textContent = `${remainingRows.length} rows • ${remainingCounts} counts still need an owner`;
-    section.classList.toggle("hidden", reviewState.rows.length === 0);
+    const unresolvedRows = reviewState.rows.filter((row) => !row.assignedEmployee);
+    const unresolvedCounts = unresolvedRows.reduce((sum, row) => sum + row.count, 0);
+    const autoRows = reviewState.rows.filter((row) => row.assignedEmployee && row.assignmentSource !== "manual");
+    const autoCounts = autoRows.reduce((sum, row) => sum + row.count, 0);
+
+    summary.textContent = `${autoRows.length} rows / ${autoCounts} counts auto-assigned by aisle • ${unresolvedRows.length} rows / ${unresolvedCounts} counts need review`;
+    section.classList.toggle("hidden", unresolvedRows.length === 0);
 
     const employeeOptions = getAssignments()
       .filter((assignment) => !/^(batches?|variance reports?)$/i.test(assignment.name.trim()))
       .map((assignment) => `<option value="${escapeHtml(assignment.name)}">${escapeHtml(assignment.name)}</option>`)
       .join("");
 
-    body.innerHTML = reviewState.rows.slice(0, 1000).map((row) => `
+    body.innerHTML = unresolvedRows.slice(0, 1000).map((row) => `
       <tr>
         <td>${escapeHtml(row.itemNumber)}</td>
         <td>${escapeHtml(row.bin)}</td>
@@ -137,7 +191,7 @@
           </select>
         </td>
       </tr>
-    `).join("") || '<tr><td colspan="6">No unassigned count rows.</td></tr>';
+    `).join("") || '<tr><td colspan="6">Every row was assigned automatically by aisle.</td></tr>';
 
     body.querySelectorAll("select[data-review-id]").forEach((select) => {
       const row = reviewState.rows.find((item) => item.id === select.dataset.reviewId);
@@ -145,6 +199,7 @@
       select.addEventListener("change", () => {
         if (!row) return;
         row.assignedEmployee = select.value;
+        row.assignmentSource = select.value ? "manual" : "";
         persistAssignments();
         applyManualTotals();
         renderResults();

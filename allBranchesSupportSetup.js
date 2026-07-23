@@ -78,10 +78,9 @@
   });
 })();
 
-/* Load the Times Counted fix after every existing production wrapper. */
+/* Always load the current official-total reconciliation after all wrappers. */
 (() => {
   const script = document.createElement("script");
-  script.src = "timesCountedProductionFix.js";
-  script.defer = true;
+  script.src = `officialReportTotalFix.js?v=20260723-4-${Date.now()}`;
   document.body.appendChild(script);
 })();

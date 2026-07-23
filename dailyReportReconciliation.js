@@ -24,9 +24,6 @@
 
       matrix.forEach((row, rowIndex) => {
         const labels = row.map((cell) => normalizeText(cell));
-
-        // Preferred layout: header contains "Total Cycle Counts" and a later
-        // row labelled Total contains the daily value in that same column.
         const totalCycleColumn = labels.findIndex((label) =>
           label.includes("total cycle count")
         );
@@ -40,7 +37,6 @@
           }
         }
 
-        // Also support reports where the Total label and total value share a row.
         if (labels.some((label) => label === "total")) {
           row.forEach((cell) => {
             const value = numberValue(cell);
@@ -119,7 +115,6 @@
     const variance = varianceTotal();
     const batches = Math.max(0, official - named - variance);
 
-    // Keep every older helper pointed at the same daily calculation.
     window.rrGetOfficialReportTotal = officialReportTotal;
     window.rrGetNamedEmployeeTotal = namedTotal;
     window.rrGetBatchesTotal = batchesTotal;
@@ -166,10 +161,44 @@
     $(id)?.addEventListener(id === "matchAlreadyCountedBtn" ? "click" : "change", runSoon);
   });
 
-  // Run after every normal render without recursively calling renderResults.
   const previousRenderResults = renderResults;
   renderResults = function renderResultsWithDailyReconciliation() {
     previousRenderResults();
     applyDailyReconciliation();
   };
+})();
+
+/* Add a visible ownership-review table and load its assignment logic last. */
+(() => {
+  if (!document.getElementById("unassignedCountReviewSection")) {
+    const results = document.getElementById("resultsSection");
+    if (results) {
+      results.insertAdjacentHTML("afterend", `
+        <section id="unassignedCountReviewSection" class="card hidden">
+          <div class="section-heading">
+            <div>
+              <h2>Unassigned Count Review</h2>
+              <small>Assign unmatched count rows to the employee who completed them. Saved by branch and report date.</small>
+            </div>
+            <span id="unassignedCountReviewSummary" class="status"></span>
+          </div>
+          <div class="table-wrap">
+            <table class="history-table">
+              <thead>
+                <tr><th>Item</th><th>Bin</th><th>Batch</th><th>Counts</th><th>Count Date</th><th>Assign To</th></tr>
+              </thead>
+              <tbody id="unassignedCountReviewBody"></tbody>
+            </table>
+          </div>
+        </section>
+      `);
+    }
+  }
+
+  if (!window.__unassignedCountReviewLoader) {
+    window.__unassignedCountReviewLoader = true;
+    const script = document.createElement("script");
+    script.src = `unassignedCountReview.js?v=20260723-1-${Date.now()}`;
+    document.body.appendChild(script);
+  }
 })();

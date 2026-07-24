@@ -25,7 +25,12 @@
     (alreadyCountedState?.rows || []).forEach((row) => {
       const item = typeof acNormalizeItem === "function" ? acNormalizeItem(row.itemNumber) : String(row.itemNumber ?? "").trim();
       const initials = normalizeInitials(row.initials);
-      if (!item || !initials || ownerByItem.has(item)) return;
+      if (!item || !initials) return;
+
+      // The Already Cycle Counted sheets are read previous-day first and
+      // report-day second. Replacing the value makes the current/report-day
+      // initials win when an item appears on both days. Repeated rows with the
+      // same initials remain a single item assignment.
       ownerByItem.set(item, { initials, employee: employeeByInitials.get(initials) || "" });
     });
     return ownerByItem;
@@ -54,6 +59,7 @@
 
   function detailRows() {
     const output = [];
+    const seenLocations = new Set();
     if (!state.workbook) return output;
 
     state.workbook.SheetNames.forEach((sheetName) => {
@@ -71,20 +77,28 @@
             countDate: countDateColumn,
             bin: detectColumn(row, ["bin #", "bin"]),
             batch: detectColumn(row, ["batch"]),
-            times: detectColumn(row, ["times counted"]),
           };
           return;
         }
 
-        if (!currentItem || !columns || columns.bin < 0 || columns.batch < 0) return;
+        if (!currentItem || !columns || columns.bin < 0) return;
         const bin = typeof acNormalizeBin === "function" ? acNormalizeBin(row?.[columns.bin]) : normalize(row?.[columns.bin]);
-        const batch = String(row?.[columns.batch] ?? "").trim();
-        const dateValue = row?.[columns.countDate];
-        const count = Math.max(1, Math.round(Number(row?.[columns.times]) || 1));
-        if (!bin || !dateValue || !/[A-Z]/.test(bin) || !(/\d|CAGE/.test(bin))) return;
-        output.push({ item: currentItem, bin, batch, count });
+        const batch = columns.batch >= 0 ? String(row?.[columns.batch] ?? "").trim() : "";
+        const dateValue = columns.countDate >= 0 ? row?.[columns.countDate] : null;
+
+        // An initials entry owns every unique bin/location listed beneath the
+        // item number, even when a particular location has a blank Count Date.
+        // Previously those blank-date locations were discarded, causing an
+        // item with many bins to receive credit for only one or two locations.
+        if (!bin || !/[A-Z]/.test(bin) || !(/\d|CAGE/.test(bin))) return;
+
+        const locationKey = `${currentItem}|${bin}`;
+        if (seenLocations.has(locationKey)) return;
+        seenLocations.add(locationKey);
+        output.push({ item: currentItem, bin, batch, count: 1, dateValue });
       });
     });
+
     return output;
   }
 
@@ -105,6 +119,8 @@
         return;
       }
 
+      // Items not listed in Already Cycle Counted continue to follow normal
+      // batch/aisle ownership. A location is assigned exactly once.
       const employee = aisleOwner(row.batch) || aisleOwner(row.bin);
       if (employee) totals[employee] += row.count;
       else batches += row.count;

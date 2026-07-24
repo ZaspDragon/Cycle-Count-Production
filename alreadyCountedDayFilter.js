@@ -1,10 +1,9 @@
 "use strict";
 
 /*
- * Read the report weekday plus the immediately previous workday from the
- * Already Cycle Counted workbook. This allows counts entered a day early to
- * receive credit on the report day while preventing the same item/initials
- * pair from being counted twice across both tabs.
+ * Read only the Already Cycle Counted worksheet that matches the detected
+ * Cycle Count Detail report date. Counts from Thursday must never carry into
+ * Friday (or from any prior workday into the current report day).
  */
 
 function acGetReportCountDate(workbook) {
@@ -49,15 +48,6 @@ function acGetWeekdaySheetName(workbook, date) {
   ) || null;
 }
 
-function acGetPreviousWorkday(date) {
-  if (!date) return null;
-  const previous = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  previous.setDate(previous.getDate() - 1);
-  if (previous.getDay() === 0) previous.setDate(previous.getDate() - 2);
-  if (previous.getDay() === 6) previous.setDate(previous.getDate() - 1);
-  return previous;
-}
-
 function acReadEveryDailyRow(workbook, sheetName) {
   const matrix = workbookMatrix(workbook, sheetName);
   const rows = [];
@@ -94,15 +84,16 @@ function acReadEveryDailyRow(workbook, sheetName) {
   return rows;
 }
 
-acFindAlreadyCountedRows = function findAlreadyCountedRowsForTwoDayWindow(workbook) {
+acFindAlreadyCountedRows = function findAlreadyCountedRowsForReportDay(workbook) {
   const reportDate = acGetReportCountDate(state.workbook);
   const reportSheet = acGetWeekdaySheetName(workbook, reportDate);
-  const previousDate = acGetPreviousWorkday(reportDate);
-  const previousSheet = acGetWeekdaySheetName(workbook, previousDate);
-
-  const sheets = [...new Set([previousSheet, reportSheet].filter(Boolean))];
 
   if (!reportSheet) {
+    alreadyCountedState.selectedDay = null;
+    alreadyCountedState.selectedSheets = [];
+    alreadyCountedState.reportDate = reportDate;
+    alreadyCountedState.dailySourceRowCount = 0;
+    alreadyCountedState.dailyUniqueRowCount = 0;
     acSetStatus(
       reportDate
         ? `No ${reportDate.toLocaleDateString("en-US", { weekday: "long" })} worksheet was found in the Already Cycle Counted file.`
@@ -112,10 +103,7 @@ acFindAlreadyCountedRows = function findAlreadyCountedRowsForTwoDayWindow(workbo
     return [];
   }
 
-  const sourceRows = sheets.flatMap((sheetName) =>
-    acReadEveryDailyRow(workbook, sheetName)
-  );
-
+  const sourceRows = acReadEveryDailyRow(workbook, reportSheet);
   const seen = new Set();
   const rows = sourceRows.filter((row) => {
     const key = `${row.itemNumber}|${row.initials}`;
@@ -125,24 +113,27 @@ acFindAlreadyCountedRows = function findAlreadyCountedRowsForTwoDayWindow(workbo
   });
 
   alreadyCountedState.selectedDay = reportSheet;
-  alreadyCountedState.selectedSheets = sheets;
+  alreadyCountedState.selectedSheets = [reportSheet];
   alreadyCountedState.reportDate = reportDate;
   alreadyCountedState.dailySourceRowCount = sourceRows.length;
   alreadyCountedState.dailyUniqueRowCount = rows.length;
   return rows;
 };
 
-const acMatchFilesBeforeTwoDayStatus = acMatchFiles;
-acMatchFiles = function matchTwoDayEntryWindow() {
-  acMatchFilesBeforeTwoDayStatus();
+const acMatchFilesBeforeDailyStatus = acMatchFiles;
+acMatchFiles = function matchReportDayOnly() {
+  acMatchFilesBeforeDailyStatus();
 
-  if (alreadyCountedState.applied && alreadyCountedState.selectedSheets?.length) {
+  if (alreadyCountedState.applied && alreadyCountedState.selectedDay) {
     const locationTotal = alreadyCountedState.matchedRows.reduce(
       (sum, row) => sum + Number(row.locationCount || 0),
       0
     );
+    const reportDateText = alreadyCountedState.reportDate
+      ? alreadyCountedState.reportDate.toLocaleDateString("en-US")
+      : "detected report date";
     acSetStatus(
-      `${alreadyCountedState.selectedSheets.join(" + ")} entry window • ` +
+      `${alreadyCountedState.selectedDay} only (${reportDateText}) • ` +
       `${alreadyCountedState.dailySourceRowCount || 0} source rows read • ` +
       `${alreadyCountedState.dailyUniqueRowCount || 0} unique item/initial entries • ` +
       `${alreadyCountedState.matchedRows.length} items matched • ${locationTotal} cycle counts credited`,

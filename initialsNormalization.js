@@ -12,6 +12,25 @@
       .replace(/[^a-z]/g, "");
   };
 
+  const canonicalInitialsByName = Object.freeze({
+    carico: "ch",
+    ernie: "eh",
+    cherish: "cc",
+    layne: "lm",
+    madison: "mj",
+    antoine: "ah",
+    greg: "gr",
+    denise: "dw",
+  });
+
+  const originalGetInitials = acGetInitials;
+  acGetInitials = function getCanonicalInitials(assignment) {
+    const name = String(assignment?.name ?? "").trim().toLowerCase();
+    const canonical = canonicalInitialsByName[name];
+    if (canonical) return canonical;
+    return acNormalizeInitials(originalGetInitials(assignment));
+  };
+
   function normalizeInitialInputs() {
     document
       .querySelectorAll("#initialsAssignmentGrid input, #employeeInitialsInput")
@@ -40,4 +59,46 @@
     originalRenderInitialsAssignments();
     normalizeInitialInputs();
   };
+
+  const originalApplyCredits = acApplyCreditsToProduction;
+  acApplyCreditsToProduction = function applyCreditsWithCanonicalInitials() {
+    const totals = {};
+    (alreadyCountedState.matchedRows || []).forEach((row) => {
+      const initials = acNormalizeInitials(row.initials);
+      if (!initials) return;
+      row.initials = initials;
+      totals[initials] = (totals[initials] || 0) + Number(row.locationCount || 0);
+    });
+    alreadyCountedState.totalsByInitials = totals;
+    originalApplyCredits();
+  };
+
+  function migrateKnownEmployeeInitials() {
+    let changed = false;
+    getAssignments().forEach((assignment) => {
+      const name = String(assignment?.name ?? "").trim().toLowerCase();
+      const canonical = canonicalInitialsByName[name];
+      if (!canonical || acNormalizeInitials(assignment.initials) === canonical) return;
+      assignment.initials = canonical;
+      changed = true;
+    });
+
+    if (changed) {
+      saveBranches();
+      if (typeof acSaveSettings === "function") acSaveSettings();
+    }
+
+    acRenderInitialsAssignments();
+    if (alreadyCountedState.applied) acApplyCreditsToProduction();
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", migrateKnownEmployeeInitials);
+  } else {
+    migrateKnownEmployeeInitials();
+  }
+
+  $("branchSelect")?.addEventListener("change", () => {
+    window.setTimeout(migrateKnownEmployeeInitials, 0);
+  });
 })();

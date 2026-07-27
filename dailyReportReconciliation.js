@@ -55,11 +55,18 @@
   }
 
   function batchesTotal() {
-    if (Number.isFinite(Number(state.ownershipPriorityBatches))) {
-      return Number(state.ownershipPriorityBatches) || 0;
-    }
     const official = officialReportTotal();
-    return official > 0 ? Math.max(0, official - namedTotal() - varianceTotal()) : 0;
+    const unresolvedByReconciliation = official > 0
+      ? Math.max(0, official - namedTotal() - varianceTotal())
+      : 0;
+    const parsedUnowned = Number.isFinite(Number(state.ownershipPriorityBatches))
+      ? Math.max(0, Number(state.ownershipPriorityBatches) || 0)
+      : 0;
+
+    // Never allow parsed ownership gaps to make counts disappear. Any report
+    // count not tied to a confirmed employee or variance owner remains in the
+    // Batches review bucket until someone explicitly assigns it.
+    return Math.max(parsedUnowned, unresolvedByReconciliation);
   }
 
   function ensureBatchesCard(total) {
@@ -78,7 +85,7 @@
     }
     card.innerHTML = `
       <div class="summary-card-top">
-        <div><strong>Batches</strong><span>Counts with no confirmed initials or aisle owner</span></div>
+        <div><strong>Batches</strong><span>Counts without a confirmed worker</span></div>
         <b>${total}</b>
       </div>
       <div class="percent-row"><span>Needs review</span><small>Included once in the report total</small></div>

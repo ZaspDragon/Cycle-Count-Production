@@ -139,7 +139,7 @@
     if (window[flag]) return;
     window[flag] = true;
     const script = document.createElement("script");
-    script.src = `${source}?v=20260723-final-${Date.now()}`;
+    script.src = `${source}?v=20260727-accuracy-${Date.now()}`;
     document.body.appendChild(script);
   }
 
@@ -163,4 +163,5 @@
 
   loadOnce("__unassignedCountReviewLoader", "unassignedCountReview.js");
   loadOnce("__ownershipPriorityLoader", "ownershipPriorityFix.js");
+  loadOnce("__productionAccuracyGuardLoader", "productionAccuracyGuard.js");
 })();

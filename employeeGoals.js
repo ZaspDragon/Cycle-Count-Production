@@ -13,6 +13,12 @@
     return normalizedName(assignment?.name) === REFERENCE_NAME;
   }
 
+  function isAbsent(assignment) {
+    return typeof window.isCycleCountAssignmentAbsent === "function"
+      ? window.isCycleCountAssignmentAbsent(assignment)
+      : false;
+  }
+
   function normalizeGoal(value, fallback = DEFAULT_GOAL) {
     const number = Number(value);
     if (!Number.isFinite(number) || number < 1 || number > 10000) return fallback;
@@ -121,7 +127,7 @@
     cards.forEach((card) => {
       const name = card.querySelector("strong")?.textContent?.trim();
       const assignment = assignmentByName.get(name);
-      if (!assignment || isReference(assignment) || card.classList.contains("is-absent")) return;
+      if (!assignment || isReference(assignment) || isAbsent(assignment)) return;
 
       const goal = assignmentGoal(assignment);
       const total = Number(state.employeeTotals[assignment.name] || 0);
@@ -157,9 +163,8 @@
       getAssignments().map((assignment) => [assignment.name, assignmentGoal(assignment)])
     );
     const activeGoal = getAssignments().reduce((sum, assignment) => {
-      if (isReference(assignment)) return sum;
-      const attendanceEntry = record.attendance?.[assignment.id];
-      return attendanceEntry?.status === "absent" ? sum : sum + assignmentGoal(assignment);
+      if (isReference(assignment) || isAbsent(assignment)) return sum;
+      return sum + assignmentGoal(assignment);
     }, 0);
     return { ...record, employeeGoals: goals, dailyTeamGoal: activeGoal };
   };

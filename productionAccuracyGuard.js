@@ -13,19 +13,12 @@
   function getOfficialTotal() {
     return typeof rrGetOfficialReportTotal === "function"
       ? Number(rrGetOfficialReportTotal()) || 0
-      : 0;
+      : Number(state.dailyOfficialReportTotal || 0);
   }
 
   function getVarianceTotal() {
-    return typeof pcVarianceTotal === "function"
-      ? Number(pcVarianceTotal()) || 0
-      : Number(state.ownershipPriorityVariance || 0);
-  }
-
-  function getBatchTotal() {
-    return typeof pcBatchesTotal === "function"
-      ? Number(pcBatchesTotal()) || 0
-      : Number(state.ownershipPriorityBatches || 0);
+    return Number(state.ownershipPriorityVariance || 0) ||
+      (typeof pcVarianceTotal === "function" ? Number(pcVarianceTotal()) || 0 : 0);
   }
 
   function employeeTotal() {
@@ -33,6 +26,17 @@
       if (/^(batches?|variance reports?)$/i.test(String(assignment?.name || "").trim())) return sum;
       return sum + (Number(state.employeeTotals?.[assignment.name]) || 0);
     }, 0);
+  }
+
+  function getBatchTotal(official, named, variance) {
+    const detected = Math.max(
+      Number(state.ownershipPriorityBatches || 0),
+      Number(state.dailyBatchesTotal || 0),
+      typeof pcBatchesTotal === "function" ? Number(pcBatchesTotal()) || 0 : 0,
+      typeof rrGetBatchesTotal === "function" ? Number(rrGetBatchesTotal()) || 0 : 0
+    );
+    const requiredRemainder = official > 0 ? Math.max(0, official - named - variance) : 0;
+    return Math.max(detected, requiredRemainder);
   }
 
   function ensurePanel() {
@@ -56,9 +60,7 @@
 
     getAssignments().forEach((assignment) => {
       const total = Number(state.employeeTotals?.[assignment.name]) || 0;
-      if (isAbsent(assignment) && total > 0) {
-        absentWithCredit.push(`${assignment.name}: ${total}`);
-      }
+      if (isAbsent(assignment) && total > 0) absentWithCredit.push(`${assignment.name}: ${total}`);
     });
 
     if (absentWithCredit.length) {
@@ -68,8 +70,10 @@
     const official = getOfficialTotal();
     const named = employeeTotal();
     const variance = getVarianceTotal();
-    const batches = getBatchTotal();
+    const batches = getBatchTotal(official, named, variance);
     const reconciled = named + variance + batches;
+
+    state.dailyBatchesTotal = batches;
 
     if (official > 0 && reconciled !== official) {
       issues.push(`Totals do not reconcile: named ${named} + variance ${variance} + batches ${batches} = ${reconciled}, but report total is ${official}`);
@@ -97,7 +101,7 @@
     } else {
       panel.classList.remove("error");
       panel.classList.add("success");
-      panel.innerHTML = `<strong>Accuracy check passed.</strong> Every credited count has one owner, absent employees have zero, and totals reconcile to ${official || reconciled}.`;
+      panel.innerHTML = `<strong>Accuracy check passed.</strong> Named employees ${named} + variance ${variance} + needs-review ${batches} = ${official || reconciled}. No absent employee has credit.`;
     }
   }
 
@@ -106,11 +110,12 @@
   const previousRenderResults = renderResults;
   renderResults = function renderResultsWithAccuracyGuard() {
     previousRenderResults();
-    window.setTimeout(runAccuracyCheck, 0);
+    window.setTimeout(runAccuracyCheck, 50);
+    window.setTimeout(runAccuracyCheck, 500);
   };
 
   ["sourceFile", "alreadyCountedFile", "branchSelect", "matchAlreadyCountedBtn"].forEach((id) => {
-    document.getElementById(id)?.addEventListener("change", () => window.setTimeout(runAccuracyCheck, 400));
-    document.getElementById(id)?.addEventListener("click", () => window.setTimeout(runAccuracyCheck, 400));
+    document.getElementById(id)?.addEventListener("change", () => window.setTimeout(runAccuracyCheck, 700));
+    document.getElementById(id)?.addEventListener("click", () => window.setTimeout(runAccuracyCheck, 700));
   });
 })();

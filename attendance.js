@@ -62,6 +62,12 @@
     return VALID_STATUSES.has(status) ? status : "present";
   }
 
+  window.getCycleCountAssignmentStatus = getAssignmentStatus;
+  window.isCycleCountAssignmentAbsent = function isCycleCountAssignmentAbsent(assignmentOrId) {
+    const id = typeof assignmentOrId === "object" ? assignmentOrId?.id : assignmentOrId;
+    return id ? getAssignmentStatus(id) === "absent" : false;
+  };
+
   function setAssignmentStatus(assignmentId, status) {
     if (!VALID_STATUSES.has(status)) return;
 
@@ -243,7 +249,7 @@
         if (percentRow) {
           percentRow.innerHTML = `
             <span class="absent-label">Absent</span>
-            <small>Excluded from today’s goal</small>
+            <small>Counts held for reassignment</small>
           `;
         }
         return;
@@ -320,6 +326,9 @@
     select.dataset.status = select.value;
     updateUIFromSelectedBranch();
     renderResults();
+    if (typeof window.recalculateCycleCountOwnership === "function") {
+      window.setTimeout(window.recalculateCycleCountOwnership, 0);
+    }
   });
 
   injectAttendanceStyles();

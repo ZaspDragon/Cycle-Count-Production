@@ -45,4 +45,15 @@
       }, 300);
     });
   });
+
+  // Load the final checker after every older wrapper has initialized. This
+  // intentionally uses a new file and cache-busting URL so an old browser copy
+  // cannot keep showing the obsolete 34-batch calculation.
+  window.setTimeout(() => {
+    if (document.querySelector('script[data-accuracy-v2="true"]')) return;
+    const script = document.createElement("script");
+    script.dataset.accuracyV2 = "true";
+    script.src = `productionAccuracyGuardV2.js?v=20260727-final-${Date.now()}`;
+    document.body.appendChild(script);
+  }, 1000);
 })();

@@ -109,11 +109,12 @@
     assignments.forEach((assignment, index) => {
       const card = cards[index];
       if (!card) return;
-      const source = state.ownershipPrioritySources?.[assignment.name] || { aisle: 0, alreadyCounted: 0 };
+      const source = state.ownershipPrioritySources?.[assignment.name] || { aisle: 0, alreadyCounted: 0, manual: 0 };
       const initials = normalizeInitials(typeof acGetInitials === "function" ? acGetInitials(assignment) : assignment.initials).toUpperCase();
       const label = card.querySelector(".summary-card-top span");
       if (label) {
-        label.textContent = `Aisle-owned: ${source.aisle || 0} • Already Counted${initials ? ` (${initials})` : ""}: ${source.alreadyCounted || 0}`;
+        const manualText = source.manual ? ` • Manual: ${source.manual}` : "";
+        label.textContent = `Aisle-owned: ${source.aisle || 0} • Already Counted${initials ? ` (${initials})` : ""}: ${source.alreadyCounted || 0}${manualText}`;
       }
     });
   }
@@ -123,11 +124,20 @@
 
     const ownerByItem = initialsOwners();
     const totals = Object.fromEntries(employees().map((assignment) => [assignment.name, 0]));
-    const sources = Object.fromEntries(employees().map((assignment) => [assignment.name, { aisle: 0, alreadyCounted: 0 }]));
+    const sources = Object.fromEntries(employees().map((assignment) => [assignment.name, { aisle: 0, alreadyCounted: 0, manual: 0 }]));
     let variance = 0;
     let batches = 0;
 
     detailRows().forEach((row) => {
+      const manualEmployee = typeof window.getManualCycleCountOwner === "function"
+        ? window.getManualCycleCountOwner(row)
+        : "";
+      if (manualEmployee && Object.prototype.hasOwnProperty.call(totals, manualEmployee)) {
+        totals[manualEmployee] += row.count;
+        sources[manualEmployee].manual += row.count;
+        return;
+      }
+
       const listedOwner = ownerByItem.get(row.item);
       if (listedOwner) {
         if (listedOwner.initials === "dw") variance += row.count;

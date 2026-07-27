@@ -14,11 +14,17 @@
     return getAssignments().filter((assignment) => !SUPPORT.test(String(assignment?.name || "").trim()));
   }
 
+  function isAbsent(assignment) {
+    return typeof window.isCycleCountAssignmentAbsent === "function"
+      ? window.isCycleCountAssignmentAbsent(assignment)
+      : false;
+  }
+
   function initialsOwners() {
     const employeeByInitials = new Map();
     employees().forEach((assignment) => {
       const initials = normalizeInitials(typeof acGetInitials === "function" ? acGetInitials(assignment) : assignment.initials);
-      if (initials) employeeByInitials.set(initials, assignment.name);
+      if (initials) employeeByInitials.set(initials, assignment);
     });
 
     const ownerByItem = new Map();
@@ -26,14 +32,19 @@
       const item = typeof acNormalizeItem === "function" ? acNormalizeItem(row.itemNumber) : String(row.itemNumber ?? "").trim();
       const initials = normalizeInitials(row.initials);
       if (!item || !initials) return;
-      ownerByItem.set(item, { initials, employee: employeeByInitials.get(initials) || "" });
+      const assignment = employeeByInitials.get(initials) || null;
+      ownerByItem.set(item, {
+        initials,
+        employee: assignment?.name || "",
+        assignment,
+      });
     });
     return ownerByItem;
   }
 
   function aisleOwner(value) {
     const text = normalize(value);
-    if (!text || /^(OH\d+|BATCH|DW)\b/.test(text)) return "";
+    if (!text || /^(OH\d+|BATCH|DW)\b/.test(text)) return null;
     const token = text.split(/[-\s_/]+/).find(Boolean) || "";
     const candidates = [token];
     const letters = token.match(/^[A-Z]+/)?.[0] || "";
@@ -47,9 +58,9 @@
           : [assignment.startAisle, assignment.endAisle];
         return range.map(normalize).includes(normalize(candidate));
       });
-      if (matches.length === 1) return matches[0].name;
+      if (matches.length === 1) return matches[0];
     }
-    return "";
+    return null;
   }
 
   function detailRows() {
@@ -120,18 +131,22 @@
       const listedOwner = ownerByItem.get(row.item);
       if (listedOwner) {
         if (listedOwner.initials === "dw") variance += row.count;
-        else if (listedOwner.employee) {
+        else if (listedOwner.assignment && !isAbsent(listedOwner.assignment)) {
           totals[listedOwner.employee] += row.count;
           sources[listedOwner.employee].alreadyCounted += row.count;
-        } else batches += row.count;
+        } else {
+          batches += row.count;
+        }
         return;
       }
 
-      const employee = aisleOwner(row.batch) || aisleOwner(row.bin);
-      if (employee) {
-        totals[employee] += row.count;
-        sources[employee].aisle += row.count;
-      } else batches += row.count;
+      const assignment = aisleOwner(row.batch) || aisleOwner(row.bin);
+      if (assignment && !isAbsent(assignment)) {
+        totals[assignment.name] += row.count;
+        sources[assignment.name].aisle += row.count;
+      } else {
+        batches += row.count;
+      }
     });
 
     employees().forEach((assignment) => {
@@ -155,6 +170,8 @@
     window.setTimeout(renderOwnershipBreakdown, 0);
     if (typeof acRenderUnassignedProductionCard === "function") acRenderUnassignedProductionCard();
   }
+
+  window.recalculateCycleCountOwnership = recalculateOwnership;
 
   const previousMatch = acMatchFiles;
   acMatchFiles = function matchFilesWithFinalOwnership() {

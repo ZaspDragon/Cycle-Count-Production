@@ -101,5 +101,51 @@
   });
   window.addEventListener("pagehide", persistRoster);
   window.addEventListener("beforeunload", persistRoster);
+  function ensureAprilRosterAssignment() {
+    if (!validBranches(state.branches)) return;
+
+    let changed = false;
+    state.branches.forEach((branch) => {
+      const branchName = String(branch?.name || "").trim().toUpperCase();
+      if (branchName !== "OH01" && branchName !== "MAIN BRANCH") return;
+
+      const assignments = Array.isArray(branch.assignments) ? branch.assignments : [];
+      const hasApril = assignments.some(
+        (assignment) => String(assignment?.name || "").trim().toLowerCase() === "april"
+      );
+      const hasROwner = assignments.some((assignment) => {
+        const start = String(assignment?.startAisle || "").trim().toUpperCase();
+        const end = String(assignment?.endAisle || "").trim().toUpperCase();
+        return start === "R" || end === "R" || /^R[A-G]$/.test(start) || /^R[A-G]$/.test(end);
+      });
+
+      if (!hasApril && !hasROwner) {
+        assignments.push({
+          id: "employee-april-r",
+          name: "April",
+          startAisle: "R",
+          endAisle: "R",
+          dailyGoal: 200,
+        });
+        branch.assignments = assignments;
+        changed = true;
+      }
+    });
+
+    if (!changed) return;
+    persistRoster();
+    renderBranchDropdown();
+    renderAssignments();
+    renderAssignmentGrid();
+  }
+
+  // app.js initializes first on DOMContentLoaded; migrate afterward without
+  // replacing any existing employee or historical result.
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", ensureAprilRosterAssignment);
+  } else {
+    window.setTimeout(ensureAprilRosterAssignment, 0);
+  }
+
   window.setTimeout(persistRoster, 0);
 })();

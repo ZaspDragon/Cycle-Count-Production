@@ -27,11 +27,21 @@
       if (initials) employeeByInitials.set(initials, assignment);
     });
 
-    const ownerByItem = new Map();
+    // Never silently let the last duplicate item win. Conflicting initials for
+    // one item are held for aisle ownership/review instead.
+    const initialsByItem = new Map();
     (alreadyCountedState?.rows || []).forEach((row) => {
       const item = typeof acNormalizeItem === "function" ? acNormalizeItem(row.itemNumber) : String(row.itemNumber ?? "").trim();
       const initials = normalizeInitials(row.initials);
       if (!item || !initials) return;
+      if (!initialsByItem.has(item)) initialsByItem.set(item, new Set());
+      initialsByItem.get(item).add(initials);
+    });
+
+    const ownerByItem = new Map();
+    initialsByItem.forEach((initialsSet, item) => {
+      if (initialsSet.size !== 1) return;
+      const initials = Array.from(initialsSet)[0];
       const assignment = employeeByInitials.get(initials) || null;
       ownerByItem.set(item, {
         initials,
@@ -63,9 +73,27 @@
     return null;
   }
 
+  function specialLocationOwner(value) {
+    const token = normalize(value).split(/[-\s_/]+/).find(Boolean) || "";
+    const letters = token.match(/^[A-Z]+/)?.[0] || "";
+    if (!/^R(?:[A-Z])?$/.test(letters)) return null;
+
+    const april = employees().find(
+      (assignment) => String(assignment?.name || "").trim().toLowerCase() === "april"
+    );
+    if (april) return april;
+
+    const rOwners = employees().filter((assignment) => {
+      const range = typeof expandAisleRange === "function"
+        ? expandAisleRange(assignment.startAisle, assignment.endAisle)
+        : [assignment.startAisle, assignment.endAisle];
+      return range.map(normalize).some((aisle) => aisle === "R" || /^R[A-Z]$/.test(aisle));
+    });
+    return rOwners.length === 1 ? rOwners[0] : null;
+  }
+
   function detailRows() {
     const output = [];
-    const seenLocations = new Set();
     if (!state.workbook) return output;
 
     state.workbook.SheetNames.forEach((sheetName) => {
@@ -73,7 +101,7 @@
       let currentItem = "";
       let columns = null;
 
-      matrix.forEach((row) => {
+      matrix.forEach((row, rowIndex) => {
         const first = typeof acNormalizeItem === "function" ? acNormalizeItem(row?.[0]) : String(row?.[0] ?? "").trim();
         if (/^\d{4,}$/.test(first) && normalizeText(row?.[0]) !== "total") currentItem = first;
 
@@ -83,6 +111,7 @@
             countDate: countDateColumn,
             bin: detectColumn(row, ["bin #", "bin"]),
             batch: detectColumn(row, ["batch"]),
+            timesCounted: detectColumn(row, ["times counted"]),
           };
           return;
         }
@@ -93,10 +122,18 @@
         const dateValue = columns.countDate >= 0 ? row?.[columns.countDate] : null;
         if (!bin || !/[A-Z]/.test(bin) || !(/\d|CAGE/.test(bin))) return;
 
-        const locationKey = `${currentItem}|${bin}`;
-        if (seenLocations.has(locationKey)) return;
-        seenLocations.add(locationKey);
-        output.push({ item: currentItem, bin, batch, count: 1, dateValue });
+        const rawCount = columns.timesCounted >= 0
+          ? Number(String(row?.[columns.timesCounted] ?? "").replace(/,/g, "").trim())
+          : 1;
+        const count = Number.isFinite(rawCount) && rawCount > 0 ? Math.round(rawCount) : 1;
+        output.push({
+          id: `${sheetName}|${rowIndex + 1}|${currentItem}|${bin}|${batch}`,
+          item: currentItem,
+          bin,
+          batch,
+          count,
+          dateValue,
+        });
       });
     });
 
@@ -127,6 +164,7 @@
     const sources = Object.fromEntries(employees().map((assignment) => [assignment.name, { aisle: 0, alreadyCounted: 0, manual: 0 }]));
     let variance = 0;
     let batches = 0;
+    const auditRows = [];
 
     detailRows().forEach((row) => {
       const manualEmployee = typeof window.getManualCycleCountOwner === "function"
@@ -135,17 +173,32 @@
       if (manualEmployee && Object.prototype.hasOwnProperty.call(totals, manualEmployee)) {
         totals[manualEmployee] += row.count;
         sources[manualEmployee].manual += row.count;
+        auditRows.push({ ...row, employee: manualEmployee, reason: "manual override" });
+        return;
+      }
+
+      // R, RA, RB, RC, RD, RE, RF and RG are location-owned by April.
+      // This explicit warehouse rule intentionally outranks item initials.
+      const specialOwner = specialLocationOwner(row.bin);
+      if (specialOwner && !isAbsent(specialOwner)) {
+        totals[specialOwner.name] += row.count;
+        sources[specialOwner.name].aisle += row.count;
+        auditRows.push({ ...row, employee: specialOwner.name, reason: "R-location rule" });
         return;
       }
 
       const listedOwner = ownerByItem.get(row.item);
       if (listedOwner) {
-        if (listedOwner.initials === "dw") variance += row.count;
-        else if (listedOwner.assignment && !isAbsent(listedOwner.assignment)) {
+        if (listedOwner.initials === "dw") {
+          variance += row.count;
+          auditRows.push({ ...row, employee: "Variance Reports", reason: "DW initials" });
+        } else if (listedOwner.assignment && !isAbsent(listedOwner.assignment)) {
           totals[listedOwner.employee] += row.count;
           sources[listedOwner.employee].alreadyCounted += row.count;
+          auditRows.push({ ...row, employee: listedOwner.employee, reason: `item initials ${listedOwner.initials.toUpperCase()}` });
         } else {
           batches += row.count;
+          auditRows.push({ ...row, employee: "", reason: "initials not mapped to an active employee" });
         }
         return;
       }
@@ -154,8 +207,10 @@
       if (assignment && !isAbsent(assignment)) {
         totals[assignment.name] += row.count;
         sources[assignment.name].aisle += row.count;
+        auditRows.push({ ...row, employee: assignment.name, reason: "aisle assignment" });
       } else {
         batches += row.count;
+        auditRows.push({ ...row, employee: "", reason: "needs review" });
       }
     });
 
@@ -165,6 +220,7 @@
       assignment.__ownershipPriorityTotal = Number(totals[assignment.name] || 0);
     });
 
+    state.ownershipAuditRows = auditRows;
     state.ownershipPriorityTotals = totals;
     state.ownershipPrioritySources = sources;
     state.ownershipPriorityVariance = variance;

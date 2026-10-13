@@ -43,7 +43,12 @@
           <h2>Team Members</h2>
           <small>Daily status resets to Present each new day. Assigned aisle values may include multiple letters or numbers.</small>
         </div>
-        <button id="addTeamMemberBtn" class="secondary small" type="button">+ Add Team Member</button>
+        <div class="branch-controls">
+          <button id="exportRosterBtn" class="secondary small" type="button">Download Team Backup</button>
+          <button id="importRosterBtn" class="secondary small" type="button">Restore Team Backup</button>
+          <input id="importRosterFile" type="file" accept=".json,application/json" hidden aria-label="Choose roster backup" />
+          <button id="addTeamMemberBtn" class="secondary small" type="button">+ Add Team Member</button>
+        </div>
       </div>
       <div class="table-wrap">
         <table class="team-table">
@@ -216,5 +221,6 @@
   <script src="dailyReportReconciliation.js?v=20260729-ownership-v2"></script>
   <script src="numericItemReviewFix.js?v=20260727-1"></script>
   <script src="activeAttendanceGoalFix.js?v=20260727-1"></script>
+  <script src="rosterBackup.js?v=20261013-1"></script>
 </body>
 </html>
